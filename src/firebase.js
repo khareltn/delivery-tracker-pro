@@ -18,12 +18,12 @@ import { getAuth } from 'firebase/auth';
 
 // CONFIG
 const firebaseConfig = {
-  apiKey: "AIzaSyDsUvlVgCUmMXMPqIVnRWVM43Ttta6I-3Q",
+  apiKey: "xxxxxxxxxxxxxxxxxxxxxxxxxxx",
   authDomain: "buini-tirth.firebaseapp.com",
   projectId: "buini-tirth",
   storageBucket: "buini-tirth.firebasestorage.app",
-  messagingSenderId: "198522091241",
-  appId: "1:198522091241:web:caca46cc7a098aa7d6a278"
+  messagingSenderId: "xxxxxxxxxxxxxxxxx",
+  appId: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 };
 
 const app = initializeApp(firebaseConfig);
