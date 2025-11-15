@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Dynamic year collections
+    match /{yearCol=companies|orders|deliveries|users|activities}_{year}/{doc} {
+      allow read, write: if request.auth != null && 
+        (request.auth.uid == resource.data.ownerId || 
+         request.auth.uid == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId);
+    }
+
+    // Financial year settings
+    match /financial_year_settings/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Init docs
+    match /{any}/{init=init} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

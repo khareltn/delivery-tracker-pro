@@ -1,0 +1,38 @@
+/* src/global.css */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f8fafc;
+  color: #1f2937;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Smooth scrolling for web */
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
+
+/* Fix for iOS PWA viewport */
+@viewport { width: device-width; zoom: 1; }
+
+/* Toastify override for dark mode */
+.Toastify__toast-container {
+  z-index: 9999;
+}
+
+/* Mapbox fix */
+.mapboxgl-popup {
+  z-index: 10000;
+}
