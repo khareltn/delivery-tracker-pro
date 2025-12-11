@@ -1,66 +1,43 @@
-// src/context/AuthContext.jsx
-import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
+//src\context\AuthContext.jsx//
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db } from '../firebase';
-import { getDoc, doc } from 'firebase/firestore';
+import { onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 
 const AuthContext = createContext();
 
-export const useAuth = () => useContext(AuthContext);
+export const useAuth = () => {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used inside AuthProvider');
+  return ctx;
+};
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [userRole, setUserRole] = useState('');
-  const [hasFY, setHasFY] = useState(false);
+  const [currentUser, setCurrentUser] = useState();
   const [loading, setLoading] = useState(true);
 
+  // CORE AUTH HELPERS
+  const login    = (email, pwd) => signInWithEmailAndPassword(auth, email, pwd);
+  const signup   = (email, pwd) => createUserWithEmailAndPassword(auth, email, pwd);
+  const logout   = () => signOut(auth);                // ←  THIS WAS MISSING
+  const resetPwd = email  => auth.sendPasswordResetEmail(email);
+
+  // ON-MOUNT LISTENER
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      if (!u) {
-        setUser(null);
-        setUserRole('');
-        setHasFY(false);
-        setLoading(false);
-        return;
+    const unsub = onAuthStateChanged(auth, async user => {
+      if (user) {
+        // merge basic firestore profile if you want
+        const userRef = doc(db, 'users', user.uid);
+        const snap    = await getDoc(userRef);
+        if (!snap.exists())
+          await setDoc(userRef, { email: user.email, createdAt: serverTimestamp() }, { merge: true });
       }
-
-      try {
-        const userDoc = await getDoc(doc(db, 'users', u.uid));
-        const role = userDoc.exists() ? userDoc.data().role || 'user' : 'user';
-
-        // FY check: users/{uid}.current_fy → financial_years/{fy_id}
-        const currentFY = userDoc.data()?.current_fy;
-        let fyExists = false;
-        if (currentFY) {
-          const fyDoc = await getDoc(doc(db, 'financial_years', currentFY));
-          fyExists = fyDoc.exists();
-        }
-
-        setUser(u);
-        setUserRole(role);
-        setHasFY(fyExists);
-      } catch (err) {
-        console.error('Auth error:', err);
-        setUserRole('user');
-        setHasFY(false);
-      } finally {
-        setLoading(false);
-      }
+      setCurrentUser(user);
+      setLoading(false);
     });
+    return unsub;
+  }, []);
 
-    return () => unsubscribe();
-  }, []); // Sirf ek baar!
-
-  // YE HAI — STABLE VALUE
-  const value = useMemo(
-    () => ({
-      user,
-      userRole,
-      hasFY,
-      loading,
-    }),
-    [user, userRole, hasFY, loading]
-  );
-
+  const value = { currentUser, login, signup, logout, resetPwd, loading };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
