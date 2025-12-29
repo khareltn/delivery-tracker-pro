@@ -1,11 +1,22 @@
 // src/components/Driver.jsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, getDocs, query, where, onSnapshot, doc, updateDoc, orderBy } from 'firebase/firestore';
+import { collection, getDocs, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { db, auth, signOut } from '../firebase';
 import { toast } from 'react-toastify';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
-const MAPBOX_TOKEN = 'pk.eyJ1IjoiZGVsaXZlcnktdHJhY2tlciIsImEiOiJjbHZ1cXduY3IweG5tMmtxbHF3Nzd3Y2VkIn0.KN1A5a1HiyCqbIwwkKls5Q'; // Replace with your Mapbox token
+// Fix Leaflet default icon issue
+const fixLeafletIcons = () => {
+  delete L.Icon.Default.prototype._getIconUrl;
+  
+  L.Icon.Default.mergeOptions({
+    iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+    iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+  });
+};
 
 const Driver = ({ styles }) => {
   const navigate = useNavigate();
@@ -20,11 +31,15 @@ const Driver = ({ styles }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [locationHistory, setLocationHistory] = useState([]);
   const [earnings, setEarnings] = useState(0);
+  const [isMapInitialized, setIsMapInitialized] = useState(false);
   const watchId = useRef(null);
 
   // Load driver data from localStorage or fetch from Firestore
   const loadDriverData = useCallback(async () => {
+    console.log('🔍 Starting loadDriverData...');
+    
     if (!auth.currentUser) {
+      console.log('❌ No authenticated user, redirecting to login');
       navigate('/login');
       return;
     }
@@ -32,197 +47,268 @@ const Driver = ({ styles }) => {
     try {
       setLoading(true);
       const userId = auth.currentUser.uid;
+      console.log('👤 User ID:', userId);
+
+      // Check localStorage first for faster loading
+      const storedDriver = localStorage.getItem('driverData');
+      if (storedDriver) {
+        console.log('📦 Found driver data in localStorage');
+        const driverData = JSON.parse(storedDriver);
+        setProfile(driverData);
+        
+        // Load company info in background
+        if (driverData.companyId) {
+          loadCompanyInfo(driverData.companyId, driverData.current_fy);
+        }
+      }
 
       // Get profile from Firestore
       const userQ = query(collection(db, 'users'), where('uid', '==', userId));
+      console.log('📡 Fetching user data from Firestore...');
+      
       const userSnap = await getDocs(userQ);
       
       if (userSnap.empty) {
-        // Try to get from localStorage
-        const storedDriver = localStorage.getItem('driverData');
-        if (storedDriver) {
-          const driverData = JSON.parse(storedDriver);
-          setProfile(driverData);
-          
-          // Try to get company info
-          if (driverData.companyId) {
-            try {
-              const compQ = query(
-                collection(db, 'companies'), 
-                where('companyId', '==', driverData.companyId)
-              );
-              const compSnap = await getDocs(compQ);
-              if (!compSnap.empty) {
-                setCompany(compSnap.docs[0].data());
-              }
-            } catch (error) {
-              console.log('Company not found in main collection');
-            }
-          }
-        } else {
+        console.log('⚠️ No user found in Firestore');
+        if (!storedDriver) {
           toast.error('Driver profile not found. Please login again.');
           await signOut(auth);
           navigate('/login');
           return;
         }
-      } else {
-        const userData = { ...userSnap.docs[0].data(), id: userSnap.docs[0].id };
-        setProfile(userData);
-        
-        // Store in localStorage for quick access
-        localStorage.setItem('driverData', JSON.stringify(userData));
-
-        // Get company info
-        if (userData.companyId) {
-          try {
-            // Try multiple collections for company data
-            let companyFound = false;
-            
-            // Check in main companies collection
-            const mainCompQuery = query(
-              collection(db, 'companies'),
-              where('companyId', '==', userData.companyId)
-            );
-            const mainCompSnap = await getDocs(mainCompQuery);
-            
-            if (!mainCompSnap.empty) {
-              setCompany(mainCompSnap.docs[0].data());
-              companyFound = true;
-            }
-            
-            // If not found, check in financial_years collection
-            if (!companyFound && userData.current_fy) {
-              try {
-                const fyCompQuery = query(
-                  collection(db, 'financial_years', userData.current_fy, 'companies'),
-                  where('companyId', '==', userData.companyId)
-                );
-                const fyCompSnap = await getDocs(fyCompQuery);
-                if (!fyCompSnap.empty) {
-                  setCompany(fyCompSnap.docs[0].data());
-                }
-              } catch (error) {
-                console.log('Company not found in financial_years');
-              }
-            }
-          } catch (error) {
-            console.error('Error loading company:', error);
-          }
-        }
+        return;
       }
 
-      // Load active deliveries
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const userData = { ...userSnap.docs[0].data(), id: userSnap.docs[0].id };
+      console.log('✅ User data loaded:', userData.name);
+      setProfile(userData);
+      
+      localStorage.setItem('driverData', JSON.stringify(userData));
+
+      // Load company info
+      if (userData.companyId) {
+        loadCompanyInfo(userData.companyId, userData.current_fy);
+      }
+
+      // Load deliveries - No composite index needed
+      console.log('📦 Loading deliveries...');
       
       const delQuery = query(
         collection(db, 'deliveries'),
-        where('driverId', '==', userId),
-        where('status', 'in', ['assigned', 'picked_up', 'in_transit', 'pending']),
-        orderBy('createdAt', 'desc')
+        where('driverId', '==', userId)
       );
       
       const delSnap = await getDocs(delQuery);
-      const delData = delSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      
+      // Filter and sort in memory
+      const delData = delSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(d => ['assigned', 'picked_up', 'in_transit', 'pending', 'delivered'].includes(d.status))
+        .sort((a, b) => {
+          const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+          const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+          return dateB - dateA;
+        });
+      
+      console.log(`✅ Loaded ${delData.length} deliveries`);
       setDeliveries(delData);
 
-      // Calculate earnings from completed deliveries
-      const completedQuery = query(
-        collection(db, 'deliveries'),
-        where('driverId', '==', userId),
-        where('status', '==', 'delivered'),
-        where('deliveryDate', '>=', today)
-      );
-      const completedSnap = await getDocs(completedQuery);
-      const totalEarnings = completedSnap.docs.reduce((sum, doc) => {
-        const data = doc.data();
-        return sum + (data.driverEarnings || data.deliveryFee || 0);
-      }, 0);
+      // Calculate earnings
+      console.log('💰 Calculating earnings...');
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const totalEarnings = delData
+        .filter(d => {
+          if (d.status !== 'delivered') return false;
+          const deliveryDate = d.deliveryTime?.toDate ? d.deliveryTime.toDate() : new Date(d.deliveryTime || 0);
+          return deliveryDate >= today;
+        })
+        .reduce((sum, d) => sum + (d.driverEarnings || d.deliveryFee || 0), 0);
+      
       setEarnings(totalEarnings);
+      console.log(`💰 Total earnings: ¥${totalEarnings}`);
 
     } catch (err) {
-      console.error('Error loading driver data:', err);
-      toast.error('Failed to load driver data');
+      console.error('❌ Error loading driver data:', err);
+      toast.error('Failed to load driver data. Please refresh the page.');
     } finally {
+      console.log('✅ Finished loading driver data');
       setLoading(false);
     }
   }, [navigate]);
 
+  // Helper function to load company info
+  const loadCompanyInfo = async (companyId, current_fy) => {
+    try {
+      console.log('🏢 Loading company info...');
+      
+      const mainCompQuery = query(
+        collection(db, 'companies'),
+        where('companyId', '==', companyId)
+      );
+      const mainCompSnap = await getDocs(mainCompQuery);
+      
+      if (!mainCompSnap.empty) {
+        const companyData = mainCompSnap.docs[0].data();
+        console.log('✅ Company found in main collection:', companyData.name);
+        setCompany(companyData);
+        return;
+      }
+      
+      if (current_fy) {
+        try {
+          const fyCompQuery = query(
+            collection(db, 'financial_years', current_fy, 'companies'),
+            where('companyId', '==', companyId)
+          );
+          const fyCompSnap = await getDocs(fyCompQuery);
+          if (!fyCompSnap.empty) {
+            const companyData = fyCompSnap.docs[0].data();
+            console.log('✅ Company found in financial_years:', companyData.name);
+            setCompany(companyData);
+          }
+        } catch (error) {
+          console.log('ℹ️ Company not found in financial_years');
+        }
+      }
+    } catch (error) {
+      console.error('⚠️ Error loading company info:', error);
+    }
+  };
+
+  // Initial data load
+  useEffect(() => {
+    console.log('🚀 Initializing driver dashboard...');
+    loadDriverData();
+  }, [loadDriverData]);
+
   // Realtime updates for deliveries
   useEffect(() => {
-    if (!profile?.id) return;
+    if (!profile?.id) {
+      console.log('⏳ Waiting for profile to load...');
+      return;
+    }
     
     const userId = auth.currentUser?.uid;
     if (!userId) return;
 
+    console.log('📡 Setting up realtime delivery updates...');
+    
     const delQuery = query(
       collection(db, 'deliveries'),
-      where('driverId', '==', userId),
-      orderBy('createdAt', 'desc')
+      where('driverId', '==', userId)
     );
 
-    const unsubscribe = onSnapshot(delQuery, (snap) => {
-      const updated = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setDeliveries(updated);
-    }, (err) => {
-      console.error('Realtime updates error:', err);
-    });
+    const unsubscribe = onSnapshot(delQuery, 
+      (snap) => {
+        const allDeliveries = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        
+        const filteredDeliveries = allDeliveries
+          .filter(d => ['assigned', 'picked_up', 'in_transit', 'pending', 'delivered'].includes(d.status))
+          .sort((a, b) => {
+            const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(a.createdAt || 0);
+            const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(b.createdAt || 0);
+            return dateB - dateA;
+          });
+        
+        console.log(`🔄 Realtime update: ${filteredDeliveries.length} deliveries`);
+        setDeliveries(filteredDeliveries);
+        
+        // Update earnings
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const todayEarnings = filteredDeliveries
+          .filter(d => {
+            if (d.status !== 'delivered') return false;
+            const deliveryDate = d.deliveryTime?.toDate ? d.deliveryTime.toDate() : new Date(d.deliveryTime || 0);
+            return deliveryDate >= today;
+          })
+          .reduce((sum, d) => sum + (d.driverEarnings || d.deliveryFee || 0), 0);
+        
+        setEarnings(todayEarnings);
+      }, 
+      (err) => {
+        console.error('❌ Realtime updates error:', err);
+        toast.error('Connection error. Some data may not update in real-time.');
+      }
+    );
 
-    return () => unsubscribe();
+    return () => {
+      console.log('🧹 Cleaning up realtime listener');
+      unsubscribe();
+    };
   }, [profile]);
 
-  // Initialize Map
+  // Initialize Leaflet Map
   useEffect(() => {
-    if (!mapContainer.current || map.current) return;
-
-    const initMap = async () => {
-      try {
-        const mapboxgl = (await import('mapbox-gl')).default;
-        mapboxgl.accessToken = MAPBOX_TOKEN;
-
-        map.current = new mapboxgl.Map({
-          container: mapContainer.current,
-          style: 'mapbox://styles/mapbox/streets-v12',
-          center: [139.7670, 35.6812], // Tokyo default
-          zoom: 12
-        });
-
-        marker.current = new mapboxgl.Marker({ 
-          color: '#dc2626',
-          draggable: false 
-        })
-        .setLngLat([139.7670, 35.6812])
-        .addTo(map.current);
-
-        // Add navigation controls
-        map.current.addControl(new mapboxgl.NavigationControl(), 'top-right');
-        
-        // Add geolocate control
-        const geolocate = new mapboxgl.GeolocateControl({
-          positionOptions: {
-            enableHighAccuracy: true
-          },
-          trackUserLocation: true,
-          showUserLocation: true,
-          showAccuracyCircle: true
-        });
-        map.current.addControl(geolocate, 'top-right');
-
-      } catch (error) {
-        console.error('Map initialization error:', error);
-        toast.error('Map failed to load. Please check your Mapbox token.');
-      }
-    };
-
-    initMap();
+    if (!mapContainer.current || isMapInitialized) return;
+    
+    console.log('🗺️ Initializing Leaflet map...');
+    
+    try {
+      fixLeafletIcons();
+      
+      map.current = L.map(mapContainer.current).setView([35.6812, 139.7670], 12);
+      
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19,
+      }).addTo(map.current);
+      
+      const driverIcon = L.divIcon({
+        html: `
+          <div style="
+            background-color: #dc2626;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            border: 3px solid white;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+          ">
+            🚚
+          </div>
+        `,
+        iconSize: [32, 32],
+        iconAnchor: [16, 16],
+        className: 'driver-marker'
+      });
+      
+      marker.current = L.marker([35.6812, 139.7670], {
+        icon: driverIcon,
+        draggable: false
+      }).addTo(map.current);
+      
+      map.current.zoomControl.setPosition('topright');
+      
+      L.control.scale({ imperial: false }).addTo(map.current);
+      
+      setIsMapInitialized(true);
+      console.log('✅ Leaflet map loaded successfully');
+      
+    } catch (error) {
+      console.error('❌ Map initialization error:', error);
+      toast.error('Map failed to load. Please check your internet connection.');
+      setIsMapInitialized(true);
+    }
 
     return () => {
       if (map.current) {
+        console.log('🧹 Cleaning up map');
         map.current.remove();
         map.current = null;
+        setIsMapInitialized(false);
       }
     };
-  }, []);
+  }, [isMapInitialized]);
 
   // Start GPS Tracking
   const startTracking = () => {
@@ -231,6 +317,7 @@ const Driver = ({ styles }) => {
       return;
     }
 
+    console.log('📍 Starting GPS tracking...');
     toast.success('🚚 Live tracking started');
     setTracking(true);
 
@@ -244,20 +331,27 @@ const Driver = ({ styles }) => {
           timestamp: new Date() 
         };
 
-        // Update location history
         setLocationHistory(prev => [...prev.slice(-49), loc]);
 
-        // Update map
-        if (marker.current && map.current) {
-          marker.current.setLngLat([longitude, latitude]);
-          map.current.flyTo({
-            center: [longitude, latitude],
-            zoom: 15,
-            essential: true
+        if (marker.current && map.current && isMapInitialized) {
+          marker.current.setLatLng([latitude, longitude]);
+          map.current.flyTo([latitude, longitude], 15, {
+            duration: 1
           });
+          
+          if (map.current.hasLayer(window.accuracyCircle)) {
+            map.current.removeLayer(window.accuracyCircle);
+          }
+          
+          window.accuracyCircle = L.circle([latitude, longitude], {
+            radius: accuracy,
+            color: '#3b82f6',
+            fillColor: '#3b82f6',
+            fillOpacity: 0.1,
+            weight: 1
+          }).addTo(map.current);
         }
 
-        // Update driver location in Firestore
         if (profile?.id) {
           try {
             await updateDoc(doc(db, 'users', profile.id), {
@@ -267,7 +361,6 @@ const Driver = ({ styles }) => {
               isTracking: true
             });
 
-            // Update active delivery location
             const activeDel = deliveries.find(d => 
               d.status === 'in_transit' || d.status === 'picked_up'
             );
@@ -305,7 +398,10 @@ const Driver = ({ styles }) => {
     setTracking(false);
     toast.info('Live tracking stopped');
 
-    // Update status in Firestore
+    if (map.current && window.accuracyCircle) {
+      map.current.removeLayer(window.accuracyCircle);
+    }
+
     if (profile?.id) {
       updateDoc(doc(db, 'users', profile.id), { 
         isTracking: false,
@@ -319,8 +415,7 @@ const Driver = ({ styles }) => {
   const calculateETA = (driverLoc, customerLoc) => {
     if (!driverLoc || !customerLoc) return 'Calculating...';
     
-    // Simple distance calculation (Haversine formula)
-    const R = 6371; // Earth's radius in km
+    const R = 6371;
     const dLat = (customerLoc.lat - driverLoc.lat) * Math.PI / 180;
     const dLon = (customerLoc.lng - driverLoc.lng) * Math.PI / 180;
     const a = 
@@ -329,9 +424,8 @@ const Driver = ({ styles }) => {
       Math.cos(customerLoc.lat * Math.PI / 180) * 
       Math.sin(dLon/2) * Math.sin(dLon/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    const distance = R * c; // Distance in km
+    const distance = R * c;
     
-    // Assuming average speed of 30 km/h in city traffic
     const etaMinutes = Math.round((distance / 30) * 60);
     
     if (etaMinutes < 1) return 'Arriving now';
@@ -352,22 +446,22 @@ const Driver = ({ styles }) => {
         updateData.pickupTime = new Date();
       } else if (newStatus === 'in_transit') {
         updateData.startTime = new Date();
-        updateData.estimatedDeliveryTime = calculateETA(
-          locationHistory[locationHistory.length - 1],
-          deliveries.find(d => d.id === deliveryId)?.customerLocation
-        );
+        const delivery = deliveries.find(d => d.id === deliveryId);
+        if (delivery && locationHistory.length > 0) {
+          updateData.estimatedDeliveryTime = calculateETA(
+            locationHistory[locationHistory.length - 1],
+            delivery.customerLocation
+          );
+        }
       } else if (newStatus === 'delivered') {
         updateData.deliveryTime = new Date();
         updateData.endTime = new Date();
         updateData.completedAt = new Date();
         
-        // Calculate earnings for this delivery
         const delivery = deliveries.find(d => d.id === deliveryId);
         if (delivery && !delivery.driverEarnings) {
-          const earnings = delivery.deliveryFee || 500; // Default 500 yen
+          const earnings = delivery.deliveryFee || 500;
           updateData.driverEarnings = earnings;
-          
-          // Update total earnings
           setEarnings(prev => prev + earnings);
         }
       }
@@ -518,7 +612,14 @@ const Driver = ({ styles }) => {
         {/* Map */}
         <div style={driverStyles.section}>
           <h3 style={driverStyles.sectionTitle}>Delivery Map</h3>
-          <div style={driverStyles.mapContainer} ref={mapContainer}></div>
+          <div style={driverStyles.mapContainer} ref={mapContainer}>
+            {!isMapInitialized && (
+              <div style={driverStyles.mapPlaceholder}>
+                <div style={driverStyles.loadingSpinner}></div>
+                <p>Loading map...</p>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Active Deliveries */}
@@ -610,8 +711,7 @@ const Driver = ({ styles }) => {
                     
                     <button
                       onClick={() => {
-                        // Navigate to delivery details
-                        setActiveTab('delivery-details');
+                        toast.info(`Viewing details for delivery #${delivery.id.slice(-6)}`);
                       }}
                       style={driverStyles.secondaryButton}
                     >
@@ -794,7 +894,6 @@ const Driver = ({ styles }) => {
                 <button
                   style={driverStyles.secondaryButton}
                   onClick={() => {
-                    // Show delivery details
                     toast.info(`Delivery details: ${delivery.customerName} - ${delivery.customerAddress}`);
                   }}
                 >
@@ -814,6 +913,9 @@ const Driver = ({ styles }) => {
       <div style={driverStyles.loadingContainer}>
         <div style={driverStyles.loadingSpinner}></div>
         <p>Loading driver dashboard...</p>
+        <p style={{ fontSize: '14px', color: '#6b7280', marginTop: '10px' }}>
+          Please wait while we load your data
+        </p>
       </div>
     );
   }
@@ -1239,7 +1341,23 @@ const driverStyles = {
     height: '400px',
     borderRadius: '12px',
     overflow: 'hidden',
-    border: '1px solid #e2e8f0'
+    border: '1px solid #e2e8f0',
+    position: 'relative',
+    zIndex: 1
+  },
+  mapPlaceholder: {
+    position: 'absolute',
+    top: '0',
+    left: '0',
+    right: '0',
+    bottom: '0',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8fafc',
+    color: '#64748b',
+    zIndex: 0
   },
   deliveriesList: {
     display: 'flex',
@@ -1519,7 +1637,7 @@ const driverStyles = {
   }
 };
 
-// Add CSS animation
+// CSS Animation component
 const DriverWithCSS = (props) => {
   useEffect(() => {
     const style = document.createElement('style');
@@ -1529,9 +1647,39 @@ const DriverWithCSS = (props) => {
         100% { transform: rotate(360deg); }
       }
       
-      /* Mapbox custom styles */
-      .mapboxgl-ctrl-logo { display: none !important; }
-      .mapboxgl-ctrl-attrib { display: none !important; }
+      /* Leaflet custom styles */
+      .leaflet-container {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      
+      .leaflet-control-zoom {
+        border: none !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+        border-radius: 6px !important;
+        overflow: hidden;
+      }
+      
+      .leaflet-control-zoom a {
+        background-color: white !important;
+        color: #374151 !important;
+        border-bottom: 1px solid #e5e7eb !important;
+      }
+      
+      .leaflet-control-zoom a:hover {
+        background-color: #f3f4f6 !important;
+      }
+      
+      .leaflet-control-scale {
+        background-color: rgba(255, 255, 255, 0.8) !important;
+        border: 1px solid #e5e7eb !important;
+        border-radius: 4px !important;
+        padding: 2px 5px !important;
+      }
+      
+      .driver-marker {
+        background: none !important;
+        border: none !important;
+      }
     `;
     document.head.appendChild(style);
     

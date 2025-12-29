@@ -1,302 +1,685 @@
-// components/Operator.jsx
-import React, { useState, useEffect } from 'react';
+// components/Operator.jsx - CORRECTED VERSION
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { 
-  collection, getDocs, query, where, onSnapshot, doc, updateDoc, 
-  deleteDoc, serverTimestamp, getDoc, addDoc 
+  collection, getDocs, query, where, onSnapshot, 
+  doc, updateDoc, deleteDoc, getDoc, addDoc 
 } from 'firebase/firestore';
 import { db, auth, signOut } from '../firebase';
 import { toast } from 'react-toastify';
-import RegistrationTab from './RegistrationTab';
-import ProductRegistration from './ProductRegistration'; // Your existing file
+import 'react-toastify/dist/ReactToastify.css';
 
-const Operator = ({ styles, selectedCompany, currentUser, companyLoading }) => {
+// Import existing components
+import DeliveryTrackingMap from './DeliveryTrackingMap';
+import DeliveryManagement from './DeliveryManagement';
+import DriverAssignments from './DriverAssignments';
+
+// Import new components for Daily Operations
+import SalesManagement from './SalesManagement';
+import AccountReceivableManagement from './AccountReceivableManagement';
+import PurchaseManagement from './PurchaseManagement';
+import AccountPayableManagement from './AccountPayableManagement';
+import InventoryManagement from './InventoryManagement';
+
+// Import Ledger components
+import LedgerTab from './LedgerTab';
+import InvoicePrinting from './InvoicePrinting';
+
+// Import Category Management
+import CategoryManagement from './CategoryManagement';
+
+// CSS Styles (EXACTLY THE SAME)
+const styles = {
+  container: {
+    backgroundColor: '#f5f7fa',
+    minHeight: '100vh',
+    fontFamily: "'Roboto', 'Segoe UI', sans-serif"
+  },
+  header: {
+    background: 'linear-gradient(135deg, #6a11cb 0%, #2575fc 100%)',
+    color: 'white',
+    borderRadius: '10px',
+    boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
+    marginBottom: '20px'
+  },
+  headerContent: {
+    padding: '20px 25px'
+  },
+  sidebar: {
+    backgroundColor: '#2c3e50',
+    borderRadius: '10px',
+    boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+    minHeight: 'calc(100vh - 180px)',
+    overflow: 'hidden'
+  },
+  sidebarSection: {
+    marginBottom: '25px'
+  },
+  sidebarTitle: {
+    color: '#95a5a6',
+    fontSize: '12px',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: '1px',
+    padding: '15px 20px 5px',
+    marginBottom: '10px',
+    borderBottom: '1px solid #34495e'
+  },
+  tabButton: {
+    display: 'flex',
+    alignItems: 'center',
+    width: '100%',
+    padding: '12px 20px',
+    backgroundColor: 'transparent',
+    border: 'none',
+    color: '#bdc3c7',
+    fontSize: '14px',
+    fontWeight: '500',
+    textAlign: 'left',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    borderLeft: '4px solid transparent',
+    '&:hover': {
+      backgroundColor: '#34495e',
+      color: '#ecf0f1'
+    }
+  },
+  tabButtonActive: {
+    backgroundColor: '#34495e',
+    color: '#ffffff',
+    borderLeft: '4px solid #3498db'
+  },
+  tabIcon: {
+    marginRight: '12px',
+    fontSize: '18px',
+    width: '24px',
+    textAlign: 'center'
+  },
+  contentArea: {
+    backgroundColor: 'white',
+    borderRadius: '10px',
+    boxShadow: '0 4px 6px rgba(0,0,0,0.05)',
+    minHeight: 'calc(100vh - 180px)',
+    padding: '25px'
+  },
+  loadingContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '400px'
+  },
+  spinner: {
+    border: '4px solid rgba(0, 0, 0, 0.1)',
+    width: '40px',
+    height: '40px',
+    borderRadius: '50%',
+    borderLeftColor: '#3498db',
+    animation: 'spin 1s linear infinite'
+  },
+  statsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+    gap: '15px',
+    marginBottom: '25px'
+  },
+  statCard: {
+    backgroundColor: 'white',
+    borderRadius: '8px',
+    padding: '20px',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.08)',
+    border: '1px solid #e1e8ed',
+    transition: 'transform 0.2s',
+    '&:hover': {
+      transform: 'translateY(-2px)',
+      boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
+    }
+  },
+  statIcon: {
+    fontSize: '24px',
+    marginBottom: '10px',
+    display: 'inline-block',
+    padding: '10px',
+    borderRadius: '8px',
+    backgroundColor: 'rgba(52, 152, 219, 0.1)'
+  },
+  statValue: {
+    fontSize: '28px',
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginBottom: '5px'
+  },
+  statLabel: {
+    fontSize: '14px',
+    color: '#7f8c8d',
+    fontWeight: '500'
+  },
+  card: {
+    backgroundColor: 'white',
+    borderRadius: '10px',
+    padding: '20px',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.05)',
+    border: '1px solid #e1e8ed',
+    marginBottom: '20px'
+  },
+  cardHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: '20px',
+    paddingBottom: '15px',
+    borderBottom: '1px solid #e1e8ed'
+  },
+  cardTitle: {
+    fontSize: '18px',
+    fontWeight: '600',
+    color: '#2c3e50',
+    margin: 0
+  },
+  activityItem: {
+    padding: '15px 0',
+    borderBottom: '1px solid #f1f1f1',
+    '&:last-child': {
+      borderBottom: 'none'
+    }
+  },
+  activityText: {
+    color: '#34495e',
+    marginBottom: '5px',
+    fontSize: '14px'
+  },
+  activityTime: {
+    fontSize: '12px',
+    color: '#95a5a6'
+  },
+  deliveryItem: {
+    padding: '12px 0',
+    borderBottom: '1px solid #f1f1f1',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  deliveryInfo: {
+    flex: 1
+  },
+  deliveryName: {
+    fontWeight: '500',
+    color: '#2c3e50',
+    marginBottom: '3px'
+  },
+  deliveryAddress: {
+    fontSize: '12px',
+    color: '#7f8c8d',
+    marginBottom: '5px'
+  },
+  deliveryTime: {
+    fontSize: '11px',
+    color: '#95a5a6'
+  },
+  statusBadge: {
+    padding: '5px 12px',
+    borderRadius: '20px',
+    fontSize: '12px',
+    fontWeight: '600',
+    textTransform: 'uppercase'
+  },
+  quickActions: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+    gap: '15px',
+    marginBottom: '25px'
+  },
+  quickActionButton: {
+    backgroundColor: 'white',
+    border: '1px solid #e1e8ed',
+    borderRadius: '8px',
+    padding: '20px 15px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    '&:hover': {
+      transform: 'translateY(-3px)',
+      boxShadow: '0 5px 15px rgba(0,0,0,0.1)',
+      borderColor: '#3498db'
+    }
+  },
+  quickActionIcon: {
+    fontSize: '24px',
+    marginBottom: '10px',
+    color: '#3498db'
+  },
+  quickActionText: {
+    fontSize: '14px',
+    fontWeight: '500',
+    color: '#2c3e50',
+    textAlign: 'center'
+  },
+  systemInfo: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: '8px',
+    padding: '15px',
+    border: '1px solid #e1e8ed'
+  },
+  infoRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    padding: '8px 0',
+    borderBottom: '1px solid #e1e8ed',
+    '&:last-child': {
+      borderBottom: 'none'
+    }
+  },
+  infoLabel: {
+    color: '#7f8c8d',
+    fontSize: '13px'
+  },
+  infoValue: {
+    color: '#2c3e50',
+    fontSize: '13px',
+    fontWeight: '500'
+  },
+  footer: {
+    textAlign: 'center',
+    color: '#95a5a6',
+    fontSize: '12px',
+    padding: '20px 0',
+    borderTop: '1px solid #e1e8ed',
+    marginTop: '30px'
+  }
+};
+
+// Animation for spinner (EXACTLY THE SAME)
+const styleSheet = document.styleSheets[0];
+styleSheet.insertRule(`
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`, styleSheet.cssRules.length);
+
+const Operator = ({ selectedCompany, currentUser, companyLoading }) => {
   const navigate = useNavigate();
   const location = useLocation();
   
-  const [company, setCompany] = useState(location.state?.company || selectedCompany);
+  // ============ STATE MANAGEMENT ============
+  const [company, setCompany] = useState(location.state?.company || selectedCompany || {});
   const [activeTab, setActiveTab] = useState('dashboard');
   const [users, setUsers] = useState([]);
+  const [drivers, setDrivers] = useState([]);
+  const [deliveries, setDeliveries] = useState([]);
   const [activities, setActivities] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(false);
+  
+  // Stats state
   const [stats, setStats] = useState({
     totalDrivers: 0,
     totalCustomers: 0,
     totalSuppliers: 0,
-    activeUsers: 0,
     totalProducts: 0,
-    lowStockProducts: 0
+    pendingDeliveries: 0,
+    activeDeliveries: 0,
+    completedToday: 0,
+    totalSalesToday: 0,
+    pendingPayments: 0
   });
-  const [showRegistrationDropdown, setShowRegistrationDropdown] = useState(false);
-  const [showUserDropdown, setShowUserDropdown] = useState(false);
 
-  // Fetch company data if not provided
-  useEffect(() => {
-    const fetchCompanyData = async () => {
-      if ((!company || Object.keys(company).length === 0) && currentUser?.uid) {
-        try {
-          console.log('OperatorDashboard: Fetching company data...');
-          setLoading(true);
-          
-          const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
-          if (userDoc.exists()) {
-            const userData = userDoc.data();
-            const companyId = userData.companyId;
-            const userFY = userData.current_fy;
-            
-            if (companyId) {
-              console.log('OperatorDashboard: Found user company data:', { companyId, userFY });
-              
-              let companyData = null;
-              
-              if (userFY) {
-                try {
-                  const companyDocRef = doc(db, 'financial_years', userFY, 'companies', companyId);
-                  const companyDoc = await getDoc(companyDocRef);
-                  if (companyDoc.exists()) {
-                    companyData = companyDoc.data();
-                    console.log('OperatorDashboard: Found company in financial_years:', companyData);
-                  }
-                } catch (error) {
-                  console.log('OperatorDashboard: Company not found in financial_years');
-                }
+  // ============ DATA LOADING FUNCTIONS ============
+  
+  const loadCompanyData = useCallback(async () => {
+    if ((!company || Object.keys(company).length === 0) && currentUser?.uid) {
+      try {
+        console.log('Loading company data...');
+        setLoading(true);
+        
+        const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+        if (!userDoc.exists()) {
+          console.error('User document not found');
+          return;
+        }
+        
+        const userData = userDoc.data();
+        const companyId = userData.companyId;
+        const userFY = userData.current_fy;
+        
+        if (!companyId) {
+          console.error('No company ID found');
+          return;
+        }
+        
+        let companyData = null;
+        
+        // Try to find company in financial_years collection
+        if (userFY) {
+          try {
+            const companyDocRef = doc(db, 'financial_years', userFY, 'companies', companyId);
+            const companyDoc = await getDoc(companyDocRef);
+            if (companyDoc.exists()) {
+              companyData = companyDoc.data();
+            }
+          } catch (error) {
+            console.log('Company not found in financial_years');
+          }
+        }
+        
+        // Search in main companies collection
+        if (!companyData) {
+          const companyQuery = query(
+            collection(db, 'companies'),
+            where('companyId', '==', companyId)
+          );
+          const companySnapshot = await getDocs(companyQuery);
+          if (!companySnapshot.empty) {
+            companyData = companySnapshot.docs[0].data();
+          }
+        }
+        
+        // Search through all financial years
+        if (!companyData) {
+          const financialYearsSnap = await getDocs(collection(db, 'financial_years'));
+          for (const fyDoc of financialYearsSnap.docs) {
+            const fy = fyDoc.id;
+            try {
+              const companyQuery = query(
+                collection(db, 'financial_years', fy, 'companies'),
+                where('companyId', '==', companyId)
+              );
+              const companySnapshot = await getDocs(companyQuery);
+              if (!companySnapshot.empty) {
+                companyData = companySnapshot.docs[0].data();
+                break;
               }
-              
-              if (!companyData) {
-                const companyQuery = query(
-                  collection(db, 'companies'),
-                  where('companyId', '==', companyId)
-                );
-                const companySnapshot = await getDocs(companyQuery);
-                if (!companySnapshot.empty) {
-                  companyData = companySnapshot.docs[0].data();
-                  console.log('OperatorDashboard: Found company in main collection:', companyData);
-                }
-              }
-              
-              if (!companyData) {
-                const financialYearsSnap = await getDocs(collection(db, 'financial_years'));
-                for (const fyDoc of financialYearsSnap.docs) {
-                  const fy = fyDoc.id;
-                  try {
-                    const companyQuery = query(
-                      collection(db, 'financial_years', fy, 'companies'),
-                      where('companyId', '==', companyId)
-                    );
-                    const companySnapshot = await getDocs(companyQuery);
-                    if (!companySnapshot.empty) {
-                      companyData = companySnapshot.docs[0].data();
-                      console.log('OperatorDashboard: Found company in FY:', fy, companyData);
-                      break;
-                    }
-                  } catch (error) {
-                    continue;
-                  }
-                }
-              }
-              
-              if (companyData) {
-                setCompany({ id: companyId, ...companyData });
-                console.log('OperatorDashboard: Company data loaded successfully');
-              } else {
-                console.error('OperatorDashboard: Company not found in any collection');
-                setCompany({
-                  id: companyId,
-                  name: 'Your Company',
-                  companyId: companyId,
-                  financialYear: userFY || '2026_2026'
-                });
-              }
+            } catch (error) {
+              continue;
             }
           }
-        } catch (error) {
-          console.error('OperatorDashboard: Error fetching company data:', error);
-        } finally {
-          setLoading(false);
         }
+        
+        if (companyData) {
+          setCompany({ id: companyId, ...companyData });
+        } else {
+          setCompany({ 
+            id: companyId, 
+            name: 'Your Company', 
+            companyId: companyId, 
+            financialYear: userFY || '2026_2026' 
+          });
+        }
+        
+      } catch (error) {
+        console.error('Error fetching company data:', error);
+        toast.error('Failed to load company data');
+      } finally {
+        setLoading(false);
       }
-    };
-
-    fetchCompanyData();
+    }
   }, [company, currentUser]);
 
-  // Load users, activities, and products when company is available
-  useEffect(() => {
-    if (company && company.id) {
-      console.log('OperatorDashboard: Company available, loading data...', company);
-      loadUsersData();
-      loadActivities();
-      loadProductStats();
-    }
-  }, [company?.id]);
-
-  // Load users from Firestore
-  const loadUsersData = async () => {
-    if (!company?.id) {
-      console.log('OperatorDashboard: Cannot load users - no company ID');
-      return;
-    }
-
+  const loadUsersData = useCallback(async () => {
+    if (!company?.id) return;
+    
     try {
-      setLoading(true);
-      console.log('OperatorDashboard: Loading users for company:', company.id);
-      
       const usersQuery = query(
         collection(db, 'users'),
         where('companyId', '==', company.id),
-        where('role', 'in', ['driver', 'customer', 'supplier'])
+        where('role', 'in', ['driver', 'customer', 'supplier', 'restaurant'])
       );
+      
       const usersSnapshot = await getDocs(usersQuery);
-      const usersData = usersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
+      const usersData = usersSnapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
       }));
       
-      console.log('OperatorDashboard: Users loaded:', usersData.length);
       setUsers(usersData);
-      updateStats(usersData);
-    } catch (error) {
-      console.error('OperatorDashboard: Error loading users data:', error);
-      setUsers([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Load operator's activities
-  const loadActivities = async () => {
-    if (!company?.id) return;
-
-    try {
-      const activitiesQuery = query(
-        collection(db, 'activities'),
-        where('companyId', '==', company.id),
-        where('performedById', '==', currentUser?.uid)
-      );
-      const activitiesSnapshot = await getDocs(activitiesQuery);
-      const activitiesData = activitiesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })).sort((a, b) => b.timestamp?.toDate() - a.timestamp?.toDate());
       
-      setActivities(activitiesData);
+      // Separate by role
+      const driversData = usersData.filter(u => u.role === 'driver');
+      const customersData = usersData.filter(u => u.role === 'customer' || u.role === 'restaurant');
+      const suppliersData = usersData.filter(u => u.role === 'supplier');
+      
+      setDrivers(driversData);
+      setCustomers(customersData);
+      setSuppliers(suppliersData);
+      
+      setStats(prev => ({
+        ...prev,
+        totalDrivers: driversData.length,
+        totalCustomers: customersData.length,
+        totalSuppliers: suppliersData.length,
+        activeUsers: usersData.length
+      }));
+      
     } catch (error) {
-      console.error('OperatorDashboard: Error loading activities:', error);
+      console.error('Error loading users data:', error);
+      toast.error('Failed to load users data');
     }
-  };
+  }, [company]);
 
-  // Load product statistics
-  const loadProductStats = async () => {
+  const loadDeliveriesData = useCallback(async () => {
     if (!company?.id) return;
+    
+    try {
+      const deliveriesQuery = query(
+        collection(db, 'deliveries'),
+        where('companyId', '==', company.id)
+      );
+      
+      const deliveriesSnapshot = await getDocs(deliveriesQuery);
+      const deliveriesData = deliveriesSnapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
+      }));
+      
+      setDeliveries(deliveriesData);
+      
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const pendingDeliveries = deliveriesData.filter(d => 
+        ['pending', 'assigned'].includes(d.status)
+      ).length;
+      
+      const activeDeliveries = deliveriesData.filter(d => 
+        ['picked_up', 'in_transit'].includes(d.status)
+      ).length;
+      
+      const completedToday = deliveriesData.filter(d => {
+        if (d.status !== 'delivered') return false;
+        const deliveryDate = d.deliveryTime?.toDate ? 
+          d.deliveryTime.toDate() : new Date(d.deliveryTime || 0);
+        return deliveryDate >= today;
+      }).length;
+      
+      setStats(prev => ({
+        ...prev,
+        pendingDeliveries,
+        activeDeliveries,
+        completedToday
+      }));
+      
+    } catch (error) {
+      console.error('Error loading deliveries:', error);
+      toast.error('Failed to load deliveries');
+    }
+  }, [company]);
 
+  const loadProductsData = useCallback(async () => {
+    if (!company?.id) return;
+    
     try {
       const productsQuery = query(
         collection(db, 'products'),
         where('companyId', '==', company.id)
       );
+      
       const productsSnapshot = await getDocs(productsQuery);
-      const productsData = productsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
+      const productsData = productsSnapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
       }));
-
-      // Count low stock products
-      const lowStockCount = productsData.filter(product => {
-        return product.currentStock <= product.stockLowerLimit;
-      }).length;
-
+      
+      setProducts(productsData);
       setStats(prev => ({
         ...prev,
-        totalProducts: productsData.length,
-        lowStockProducts: lowStockCount
+        totalProducts: productsData.length
       }));
-    } catch (error) {
-      console.error('OperatorDashboard: Error loading product stats:', error);
-    }
-  };
-
-  // Update stats based on users and products
-  const updateStats = (usersData) => {
-    setStats(prev => ({
-      ...prev,
-      totalDrivers: usersData.filter(u => u.role === 'driver').length,
-      totalCustomers: usersData.filter(u => u.role === 'customer').length,
-      totalSuppliers: usersData.filter(u => u.role === 'supplier').length,
-      activeUsers: usersData.length
-    }));
-  };
-
-  // Log activity for admin tracking
-  const logActivity = async (action, target, details = {}) => {
-    try {
-      const activityData = {
-        action,
-        target,
-        details,
-        performedBy: currentUser?.email || 'Unknown Operator',
-        performedById: currentUser?.uid,
-        userRole: 'operator',
-        companyId: company.id,
-        companyName: company.name || 'Unknown Company',
-        timestamp: new Date()
-      };
-
-      await addDoc(collection(db, 'activities'), activityData);
-      loadActivities();
-    } catch (error) {
-      console.error('OperatorDashboard: Error logging activity:', error);
-    }
-  };
-
-  const getUsersByRole = (role) => {
-    return users.filter(user => user.role === role);
-  };
-
-  // Operator can delete users
-  const handleDeleteUser = async (user) => {
-    if (!window.confirm(`Are you sure you want to delete ${user.name}?`)) {
-      return;
-    }
-
-    try {
-      await deleteDoc(doc(db, 'users', user.id));
       
-      await logActivity('USER_DELETED', user.role, {
-        deletedUserName: user.name,
-        deletedUserMobile: user.mobileNumber || user.landlineNumber,
-        deletedUserRole: user.role
-      });
-
-      toast.success('✅ User deleted successfully!');
-      await loadUsersData();
     } catch (error) {
-      console.error('OperatorDashboard: Error deleting user:', error);
-      toast.error('Failed to delete user: ' + error.message);
+      console.error('Error loading products:', error);
+      toast.error('Failed to load products');
     }
+  }, [company]);
+
+  const loadActivities = useCallback(async () => {
+    if (!company?.id || !currentUser?.uid) return;
+    
+    try {
+      const activitiesQuery = query(
+        collection(db, 'activities'),
+        where('companyId', '==', company.id),
+        where('performedById', '==', currentUser.uid)
+      );
+      
+      const activitiesSnapshot = await getDocs(activitiesQuery);
+      const activitiesData = activitiesSnapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a, b) => {
+          const dateA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp || 0);
+          const dateB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp || 0);
+          return dateB - dateA;
+        });
+      
+      setActivities(activitiesData);
+      
+    } catch (error) {
+      console.error('Error loading activities:', error);
+    }
+  }, [company, currentUser]);
+
+  // ============ REAL-TIME LISTENERS ============
+  useEffect(() => {
+    if (!company?.id) return;
+    
+    const usersQuery = query(
+      collection(db, 'users'),
+      where('companyId', '==', company.id)
+    );
+    
+    const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+      const updatedUsers = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
+      }));
+      setUsers(updatedUsers);
+      setDrivers(updatedUsers.filter(u => u.role === 'driver'));
+      setCustomers(updatedUsers.filter(u => u.role === 'customer' || u.role === 'restaurant'));
+      setSuppliers(updatedUsers.filter(u => u.role === 'supplier'));
+    });
+    
+    const deliveriesQuery = query(
+      collection(db, 'deliveries'),
+      where('companyId', '==', company.id)
+    );
+    
+    const unsubscribeDeliveries = onSnapshot(deliveriesQuery, (snapshot) => {
+      const updatedDeliveries = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
+      }));
+      setDeliveries(updatedDeliveries);
+    });
+    
+    return () => {
+      unsubscribeUsers();
+      unsubscribeDeliveries();
+    };
+  }, [company]);
+
+  // ============ INITIAL LOADING ============
+  useEffect(() => {
+    loadCompanyData();
+  }, [loadCompanyData]);
+
+  useEffect(() => {
+    if (company && company.id) {
+      loadUsersData();
+      loadDeliveriesData();
+      loadProductsData();
+      loadActivities();
+    }
+  }, [company, loadUsersData, loadDeliveriesData, loadProductsData, loadActivities]);
+
+  // ============ HELPER FUNCTIONS ============
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('ja-JP', {
+      style: 'currency',
+      currency: 'JPY',
+      minimumFractionDigits: 0
+    }).format(amount || 0);
   };
 
-  // Operator can toggle user status
-  const handleToggleUserStatus = async (user) => {
-    try {
-      const newStatus = user.status === 'active' ? 'inactive' : 'active';
-      await updateDoc(doc(db, 'users', user.id), {
-        status: newStatus,
-        updatedAt: new Date()
-      });
+  const formatDate = (timestamp) => {
+    if (!timestamp) return 'N/A';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleString('ja-JP', { 
+      year: 'numeric',
+      month: 'short', 
+      day: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  };
 
-      await logActivity('USER_STATUS_CHANGED', user.role, {
-        userName: user.name,
-        userMobile: user.mobileNumber || user.landlineNumber,
-        oldStatus: user.status,
-        newStatus: newStatus
-      });
+  const getStatusColor = (status) => {
+    const colors = {
+      'pending': '#ff9800',
+      'assigned': '#2196f3',
+      'picked_up': '#673ab7',
+      'in_transit': '#00bcd4',
+      'delivered': '#4caf50',
+      'cancelled': '#f44336',
+      'active': '#4caf50',
+      'inactive': '#9e9e9e'
+    };
+    return colors[status] || '#9e9e9e';
+  };
 
-      toast.success(`✅ User ${newStatus === 'active' ? 'activated' : 'deactivated'} successfully!`);
-      await loadUsersData();
-    } catch (error) {
-      console.error('OperatorDashboard: Error updating user status:', error);
-      toast.error('Failed to update user status: ' + error.message);
-    }
+  const getStatusBadgeStyle = (status) => {
+    const color = getStatusColor(status);
+    return {
+      ...styles.statusBadge,
+      backgroundColor: color,
+      color: ['#ff9800', '#2196f3', '#00bcd4'].includes(color) ? '#000' : '#fff'
+    };
+  };
+
+  const getActivityLabel = (action) => {
+    const labels = {
+      'USER_CREATED': '👤 User Created',
+      'USER_UPDATED': '📝 User Updated',
+      'USER_DELETED': '🗑️ User Deleted',
+      'USER_STATUS_CHANGED': '🔄 User Status Changed',
+      'DELIVERY_CREATED': '📦 Delivery Created',
+      'DELIVERY_ASSIGNED': '👨‍✈️ Delivery Assigned',
+      'DELIVERY_STATUS_CHANGED': '🔄 Delivery Status Changed',
+      'DELIVERY_UPDATED': '✏️ Delivery Updated',
+      'DELIVERY_DELETED': '🗑️ Delivery Deleted',
+      'PRODUCT_CREATED': '📦 Product Created',
+      'PRODUCT_UPDATED': '✏️ Product Updated',
+      'PRODUCT_DELETED': '🗑️ Product Deleted',
+      'STOCK_UPDATED': '📊 Stock Updated',
+      'COMPANY_UPDATED': '🏢 Company Updated',
+      'LOGIN': '🔐 Login',
+      'LOGOUT': '🚪 Logout',
+      'SETTINGS_UPDATED': '⚙️ Settings Updated',
+      'REPORT_GENERATED': '📄 Report Generated'
+    };
+    return labels[action] || `📋 ${action.replace(/_/g, ' ')}`;
   };
 
   const handleSignOut = async () => {
@@ -305,1264 +688,580 @@ const Operator = ({ styles, selectedCompany, currentUser, companyLoading }) => {
       navigate('/login');
     } catch (error) {
       console.error('Error signing out:', error);
+      toast.error('Failed to sign out');
     }
   };
 
-  const formatDate = (timestamp) => {
-    if (!timestamp) return 'N/A';
-    return new Date(timestamp.toDate()).toLocaleString('ja-JP');
-  };
-
-  // Stat Card Component
-  const StatCard = ({ value, label, color = '#10b981', icon, onClick }) => (
-    <div 
-      style={{...operatorStyles.statCard, cursor: onClick ? 'pointer' : 'default'}} 
-      onClick={onClick}
-    >
-      <div style={operatorStyles.statHeader}>
-        <div style={operatorStyles.statIcon}>{icon}</div>
-        <div style={{...operatorStyles.statValue, color: color }}>
-          {value}
-        </div>
-      </div>
-      <div style={operatorStyles.statLabel}>
-        {label}
-      </div>
+  // ============ RENDER FUNCTIONS ============
+  
+  const renderLoading = () => (
+    <div style={styles.loadingContainer}>
+      <div style={styles.spinner}></div>
+      <span style={{ marginLeft: '15px', color: '#3498db', fontWeight: '500' }}>
+        Loading dashboard data...
+      </span>
     </div>
   );
 
-  // Show loading state
-  if (!company || companyLoading) {
+  const renderStatsCards = () => {
+    const statCards = [
+      { title: 'Total Drivers', value: stats.totalDrivers, icon: '👨‍✈️', color: '#3498db' },
+      { title: 'Total Customers', value: stats.totalCustomers, icon: '👥', color: '#2ecc71' },
+      { title: 'Total Suppliers', value: stats.totalSuppliers, icon: '🏢', color: '#9b59b6' },
+      { title: 'Total Products', value: stats.totalProducts, icon: '📦', color: '#e74c3c' },
+      { title: 'Pending Deliveries', value: stats.pendingDeliveries, icon: '⏳', color: '#f39c12' },
+      { title: 'Active Deliveries', value: stats.activeDeliveries, icon: '🚚', color: '#1abc9c' },
+    ];
+
     return (
-      <div style={operatorStyles.container}>
-        <div style={operatorStyles.card}>
-          <div style={operatorStyles.loadingSpinner}></div>
-          <h3>Loading Company Data...</h3>
-          <p>Please wait while we load your company information.</p>
-          <p><small>Company ID: {currentUser?.companyId || 'Loading...'}</small></p>
-          {companyLoading && <p>Fetching company details...</p>}
-          <button 
-            onClick={() => window.location.reload()}
-            style={operatorStyles.primaryButton}
-          >
-            Retry
-          </button>
-        </div>
+      <div style={styles.statsGrid}>
+        {statCards.map((stat, index) => (
+          <div key={index} style={styles.statCard}>
+            <div style={{...styles.statIcon, color: stat.color}}>
+              {stat.icon}
+            </div>
+            <div style={{...styles.statValue, color: stat.color}}>
+              {stat.value}
+            </div>
+            <div style={styles.statLabel}>
+              {stat.title}
+            </div>
+          </div>
+        ))}
       </div>
     );
-  }
+  };
 
-  const renderDashboard = () => {
-    return (
-      <div>
-        <div style={operatorStyles.section}>
-          <h3 style={operatorStyles.sectionTitle}>Quick Overview - {company.name}</h3>
-          <div style={operatorStyles.statsGrid}>
-            <StatCard 
-              value={stats.totalDrivers}
-              label="Total Drivers"
-              color="#10b981"
-              icon="🚚"
-              onClick={() => setActiveTab('drivers')}
-            />
-            
-            <StatCard 
-              value={stats.totalCustomers}
-              label="Total Customers"
-              color="#3b82f6"
-              icon="👥"
-              onClick={() => setActiveTab('customers')}
-            />
-            
-            <StatCard 
-              value={stats.totalSuppliers}
-              label="Total Suppliers"
-              color="#f59e0b"
-              icon="🏭"
-              onClick={() => setActiveTab('suppliers')}
-            />
-            
-            <StatCard 
-              value={stats.activeUsers}
-              label="Active Users"
-              color="#ef4444"
-              icon="✅"
-            />
-          </div>
+  const renderDashboard = () => (
+    <div>
+      {/* Stats Cards */}
+      {renderStatsCards()}
+      
+      {/* Quick Actions */}
+      <div style={styles.quickActions}>
+        <div 
+          style={styles.quickActionButton}
+          onClick={() => setActiveTab('ledger')}
+        >
+          <div style={{...styles.quickActionIcon, color: '#3498db'}}>📝</div>
+          <div style={styles.quickActionText}>Register New</div>
         </div>
-
-        <div style={operatorStyles.section}>
-          <h3 style={operatorStyles.sectionTitle}>Inventory Overview</h3>
-          <div style={operatorStyles.statsGrid}>
-            <StatCard 
-              value={stats.totalProducts}
-              label="Total Products"
-              color="#8b5cf6"
-              icon="📦"
-              onClick={() => setActiveTab('product-registration')}
-            />
-
-            <StatCard 
-              value={stats.lowStockProducts}
-              label="Low Stock Items"
-              color="#f59e0b"
-              icon="⚠️"
-            />
-
-            <StatCard 
-              value={stats.totalSuppliers}
-              label="Active Suppliers"
-              color="#10b981"
-              icon="🏭"
-              onClick={() => setActiveTab('suppliers')}
-            />
-
-            <StatCard 
-              value={users.filter(u => u.status === 'active').length}
-              label="Active Users"
-              color="#3b82f6"
-              icon="🟢"
-            />
-          </div>
+        <div 
+          style={styles.quickActionButton}
+          onClick={() => setActiveTab('invoice')}
+        >
+          <div style={{...styles.quickActionIcon, color: '#2ecc71'}}>🧾</div>
+          <div style={styles.quickActionText}>Create Invoice</div>
         </div>
+        <div 
+          style={styles.quickActionButton}
+          onClick={() => setActiveTab('sales-management')}
+        >
+          <div style={{...styles.quickActionIcon, color: '#9b59b6'}}>💰</div>
+          <div style={styles.quickActionText}>Record Sale</div>
+        </div>
+        <div 
+          style={styles.quickActionButton}
+          onClick={() => setActiveTab('purchase-management')}
+        >
+          <div style={{...styles.quickActionIcon, color: '#e74c3c'}}>🛒</div>
+          <div style={styles.quickActionText}>New Purchase</div>
+        </div>
+      </div>
 
-        {activities.length > 0 && (
-          <div style={operatorStyles.section}>
-            <h3 style={operatorStyles.sectionTitle}>Your Recent Activities</h3>
-            <div style={operatorStyles.activitiesList}>
-              {activities.slice(0, 5).map(activity => (
-                <div key={activity.id} style={operatorStyles.activityItem}>
-                  <div style={operatorStyles.activityHeader}>
-                    <span style={operatorStyles.activityAction}>{getActivityLabel(activity.action)}</span>
-                    <span style={operatorStyles.activityTime}>{formatDate(activity.timestamp)}</span>
+      <div style={{ display: 'flex', gap: '20px' }}>
+        {/* Left Column */}
+        <div style={{ flex: 2 }}>
+          {/* Recent Activities */}
+          <div style={styles.card}>
+            <div style={styles.cardHeader}>
+              <h3 style={styles.cardTitle}>Recent Activities</h3>
+              <button 
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#3498db',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500'
+                }}
+                onClick={loadActivities}
+              >
+                ↻ Refresh
+              </button>
+            </div>
+            <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+              {activities.slice(0, 8).map(activity => (
+                <div key={activity.id} style={styles.activityItem}>
+                  <div style={styles.activityText}>
+                    <strong>{getActivityLabel(activity.action)}</strong>
                   </div>
-                  <div style={operatorStyles.activityDetails}>
-                    {activity.details.userName && (
-                      <span>User: {activity.details.userName} ({activity.details.userMobile || activity.details.landlineNumber})</span>
-                    )}
+                  <div style={styles.activityText}>
+                    {activity.details?.description || 'No description'}
+                  </div>
+                  <div style={styles.activityTime}>
+                    By: {activity.performedBy || 'Unknown'} • {formatDate(activity.timestamp)}
                   </div>
                 </div>
               ))}
+              {activities.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#95a5a6' }}>
+                  <div style={{ fontSize: '36px', marginBottom: '10px' }}>📊</div>
+                  <p>No activities recorded yet</p>
+                </div>
+              )}
             </div>
-            {activities.length > 5 && (
-              <button 
-                onClick={() => setActiveTab('activities')}
-                style={operatorStyles.viewAllButton}
-              >
-                View All Your Activities
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderUserManagement = (users, role, color) => {
-    const title = role === 'customer' ? 'Customers' : 
-                  role === 'driver' ? 'Drivers' : 
-                  'Suppliers';
-    
-    return (
-      <div>
-        <div style={operatorStyles.userManagementHeader}>
-          <div>
-            <h3 style={operatorStyles.sectionTitle}>
-              {title} Management - {company.name}
-            </h3>
-            <div style={operatorStyles.userCount}>Total: {users.length}</div>
           </div>
         </div>
 
-        {users.length === 0 ? (
-          <div style={operatorStyles.emptyState}>
-            <div style={operatorStyles.emptyStateIcon}>👥</div>
-            <h4>No {title} Found</h4>
-            <p>Create your first {title.slice(0, -1)} to get started.</p>
-            <button 
-              onClick={() => {
-                setActiveTab(`${role}-registration`);
-                setShowRegistrationDropdown(true);
-              }}
-              style={{ ...operatorStyles.primaryButton, backgroundColor: color }}
-            >
-              Create First {title.slice(0, -1)}
-            </button>
-          </div>
-        ) : (
-          <div style={operatorStyles.userList}>
-            {users.map(user => (
-              <div key={user.id} style={operatorStyles.userItem}>
-                <div style={operatorStyles.userInfo}>
-                  <div style={operatorStyles.userMain}>
-                    <div style={operatorStyles.userName}>
-                      {user.name}
-                      <span style={{ ...operatorStyles.roleBadge, backgroundColor: color }}>
-                        {user.role}
-                      </span>
-                      <span style={user.status === 'active' ? operatorStyles.activeBadge : operatorStyles.inactiveBadge}>
-                        {user.status}
-                      </span>
+        {/* Right Column */}
+        <div style={{ flex: 1 }}>
+          {/* Recent Deliveries */}
+          <div style={styles.card}>
+            <div style={styles.cardHeader}>
+              <h3 style={styles.cardTitle}>Recent Deliveries</h3>
+            </div>
+            <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+              {deliveries.slice(0, 5).map(delivery => (
+                <div key={delivery.id} style={styles.deliveryItem}>
+                  <div style={styles.deliveryInfo}>
+                    <div style={styles.deliveryName}>
+                      {delivery.customerName || 'Unknown Customer'}
+                    </div>
+                    <div style={styles.deliveryAddress}>
+                      {delivery.customerAddress?.slice(0, 25)}...
+                    </div>
+                    <div style={styles.deliveryTime}>
+                      {formatDate(delivery.createdAt)}
                     </div>
                   </div>
-                  <div style={operatorStyles.userDetails}>
-                    <div style={operatorStyles.userDetail}>
-                      📱 {user.mobileNumber || user.landlineNumber || 'No phone'}
-                    </div>
-                    {user.email && <div style={operatorStyles.userDetail}>📧 {user.email}</div>}
-                    {user.vehicleNumber && (
-                      <div style={operatorStyles.userDetail}>🚚 Vehicle: {user.vehicleNumber}</div>
-                    )}
-                    {user.licenseNumber && (
-                      <div style={operatorStyles.userDetail}>📄 License: {user.licenseNumber}</div>
-                    )}
-                    {user.createdBy && (
-                      <div style={operatorStyles.userDetail}>👤 Created by: {user.createdBy}</div>
-                    )}
-                  </div>
-                  <div style={operatorStyles.userDate}>
-                    Created: {user.createdAt ? 
-                      new Date(user.createdAt.toDate()).toLocaleDateString('ja-JP') : 
-                      'N/A'
-                    }
+                  <div>
+                    <span style={getStatusBadgeStyle(delivery.status)}>
+                      {delivery.status}
+                    </span>
                   </div>
                 </div>
-                <div style={operatorStyles.userActions}>
-                  <button 
-                    onClick={() => handleToggleUserStatus(user)}
-                    style={user.status === 'active' ? operatorStyles.deactivateButton : operatorStyles.activateButton}
-                  >
-                    {user.status === 'active' ? 'Deactivate' : 'Activate'}
-                  </button>
-                  <button 
-                    onClick={() => handleDeleteUser(user)}
-                    style={operatorStyles.deleteButton}
-                  >
-                    Delete
-                  </button>
+              ))}
+              
+              {deliveries.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '30px', color: '#95a5a6' }}>
+                  <div style={{ fontSize: '36px', marginBottom: '10px' }}>📦</div>
+                  <p>No deliveries yet</p>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderActivities = () => (
-    <div>
-      <div style={operatorStyles.section}>
-        <h3 style={operatorStyles.sectionTitle}>Your Activity Log - {company.name}</h3>
-        <p style={operatorStyles.formDescription}>
-          All your activities are logged here for monitoring and audit purposes.
-        </p>
-
-        {activities.length === 0 ? (
-          <div style={operatorStyles.emptyState}>
-            <div style={operatorStyles.emptyStateIcon}>📋</div>
-            <h4>No Activities Yet</h4>
-            <p>Your activities will appear here once you start managing users.</p>
-          </div>
-        ) : (
-          <div style={operatorStyles.activitiesListFull}>
-            {activities.map(activity => (
-              <div key={activity.id} style={operatorStyles.activityItem}>
-                <div style={operatorStyles.activityHeader}>
-                  <span style={operatorStyles.activityAction}>{getActivityLabel(activity.action)}</span>
-                  <span style={operatorStyles.activityTime}>{formatDate(activity.timestamp)}</span>
-                </div>
-                <div style={operatorStyles.activityDetails}>
-                  {activity.details.userName && (
-                    <span><strong>User:</strong> {activity.details.userName} ({activity.details.userMobile || activity.details.landlineNumber})</span>
-                  )}
-                  {activity.details.oldStatus && (
-                    <span><strong>Status Change:</strong> {activity.details.oldStatus} → {activity.details.newStatus}</span>
-                  )}
-                  {activity.details.vehicleNumber && (
-                    <span><strong>Vehicle:</strong> {activity.details.vehicleNumber}</span>
-                  )}
-                  {activity.details.licenseNumber && (
-                    <span><strong>License:</strong> {activity.details.licenseNumber}</span>
-                  )}
-                  {activity.details.productName && (
-                    <span><strong>Product:</strong> {activity.details.productName}</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  const renderDailyOperations = () => (
-    <div>
-      <div style={operatorStyles.section}>
-        <h3 style={operatorStyles.sectionTitle}>Daily Operations - {company.name}</h3>
-        <p style={operatorStyles.formDescription}>
-          Manage daily activities and operations for your restaurant.
-        </p>
-        
-        <div style={operatorStyles.operationsGrid}>
-          <div style={operatorStyles.operationCard}>
-            <div style={operatorStyles.operationIcon}>📦</div>
-            <h4 style={operatorStyles.operationTitle}>Product Management</h4>
-            <p style={operatorStyles.operationDescription}>Add and manage restaurant inventory products</p>
-            <button 
-              style={operatorStyles.operationButton}
-              onClick={() => setActiveTab('product-registration')}
-            >
-              Manage Products
-            </button>
-          </div>
-          
-          <div style={operatorStyles.operationCard}>
-            <div style={operatorStyles.operationIcon}>🛒</div>
-            <h4 style={operatorStyles.operationTitle}>Order Management</h4>
-            <p style={operatorStyles.operationDescription}>Create and track customer orders</p>
-            <button 
-              style={operatorStyles.operationButton}
-              onClick={() => {/* Add order management logic */}}
-            >
-              Manage Orders
-            </button>
-          </div>
-          
-          <div style={operatorStyles.operationCard}>
-            <div style={operatorStyles.operationIcon}>🚚</div>
-            <h4 style={operatorStyles.operationTitle}>Delivery Tracking</h4>
-            <p style={operatorStyles.operationDescription}>Track driver deliveries in real-time</p>
-            <button style={operatorStyles.operationButton}>Track Deliveries</button>
-          </div>
-          
-          <div style={operatorStyles.operationCard}>
-            <div style={operatorStyles.operationIcon}>💰</div>
-            <h4 style={operatorStyles.operationTitle}>Payment Collection</h4>
-            <p style={operatorStyles.operationDescription}>Record and track payments</p>
-            <button style={operatorStyles.operationButton}>Manage Payments</button>
+              )}
+            </div>
           </div>
 
-          <div style={operatorStyles.operationCard}>
-            <div style={operatorStyles.operationIcon}>📊</div>
-            <h4 style={operatorStyles.operationTitle}>Inventory Reports</h4>
-            <p style={operatorStyles.operationDescription}>View inventory stock and reports</p>
-            <button style={operatorStyles.operationButton}>View Reports</button>
-          </div>
-
-          <div style={operatorStyles.operationCard}>
-            <div style={operatorStyles.operationIcon}>⚠️</div>
-            <h4 style={operatorStyles.operationTitle}>Stock Alerts</h4>
-            <p style={operatorStyles.operationDescription}>Monitor low stock items</p>
-            <button 
-              style={operatorStyles.operationButton}
-              onClick={() => {/* Add stock alerts logic */}}
-            >
-              View Alerts
-            </button>
+          {/* System Info */}
+          <div style={styles.systemInfo}>
+            <h4 style={{ margin: '0 0 15px 0', color: '#2c3e50', fontSize: '16px' }}>
+              System Information
+            </h4>
+            <div style={styles.infoRow}>
+              <span style={styles.infoLabel}>Company:</span>
+              <span style={styles.infoValue}>{company.name || 'Loading...'}</span>
+            </div>
+            <div style={styles.infoRow}>
+              <span style={styles.infoLabel}>Financial Year:</span>
+              <span style={styles.infoValue}>{company.financialYear || '2026'}</span>
+            </div>
+            <div style={styles.infoRow}>
+              <span style={styles.infoLabel}>Last Updated:</span>
+              <span style={styles.infoValue}>{formatDate(new Date())}</span>
+            </div>
           </div>
         </div>
       </div>
     </div>
   );
 
-  // Helper function to get activity labels
-  const getActivityLabel = (action) => {
-    const labels = {
-      'USER_CREATED': '👤 User Created',
-      'USER_DELETED': '🗑️ User Deleted',
-      'USER_STATUS_CHANGED': '🔄 Status Changed',
-      'RESTAURANT_CREATED': '🍽️ Restaurant Created',
-      'SUPPLIER_CREATED': '🏭 Supplier Created',
-      'DRIVER_CREATED': '🚚 Driver Created',
-      'PRODUCT_CREATED': '📦 Product Created',
-      'PRODUCT_UPDATED': '📝 Product Updated',
-      'ORDER_CREATED': '🛒 Order Created',
-      'ORDER_COMPLETED': '✅ Order Completed',
-      'PAYMENT_RECEIVED': '💰 Payment Received',
-      'STOCK_ALERT': '⚠️ Stock Alert'
-    };
-    return labels[action] || action;
-  };
-
-  // Handle registration type selection
-  const renderRegistrationContent = (type) => {
-    return (
-      <div>
-        <div style={operatorStyles.registrationHeader}>
-          <h2 style={operatorStyles.registrationTitle}>
-            {type === 'driver' && '🚚 Driver Registration'}
-            {type === 'restaurant' && '🍽️ Restaurant Registration'}
-            {type === 'supplier' && '🏭 Supplier Registration'}
-          </h2>
-          
-          <div style={operatorStyles.registrationTypeTabs}>
-            <button
-              style={{
-                ...operatorStyles.registrationTypeTab,
-                ...(type === 'driver' && operatorStyles.activeRegistrationTypeTab)
-              }}
-              onClick={() => setActiveTab('driver-registration')}
-            >
-              🚚 Driver
-            </button>
-            <button
-              style={{
-                ...operatorStyles.registrationTypeTab,
-                ...(type === 'restaurant' && operatorStyles.activeRegistrationTypeTab)
-              }}
-              onClick={() => setActiveTab('restaurant-registration')}
-            >
-              🍽️ Restaurant
-            </button>
-            <button
-              style={{
-                ...operatorStyles.registrationTypeTab,
-                ...(type === 'supplier' && operatorStyles.activeRegistrationTypeTab)
-              }}
-              onClick={() => setActiveTab('supplier-registration')}
-            >
-              🏭 Supplier
-            </button>
-          </div>
-        </div>
-
-        <RegistrationTab 
-          currentUser={currentUser}
-          company={company}
-          loadUsersData={loadUsersData}
-          logActivity={logActivity}
-          defaultType={type}
-        />
-      </div>
-    );
-  };
-
+  // ============ MAIN RENDER ============
   return (
-    <div style={operatorStyles.operatorContainer}>
-      {/* Sidebar */}
-      <div style={operatorStyles.sidebar}>
-        <div style={operatorStyles.sidebarHeader}>
-          <h2 style={operatorStyles.companyName}>{company?.name || 'Company'}</h2>
-          <p style={operatorStyles.operatorName}>
-            <strong>Operator:</strong> {currentUser?.email || 'Unknown User'}
-          </p>
-        </div>
-        
-        <div style={operatorStyles.sidebarMenu}>
-          <button 
-            style={{ 
-              ...operatorStyles.sidebarButton,
-              ...(activeTab === 'dashboard' && operatorStyles.activeSidebarButton)
-            }}
-            onClick={() => setActiveTab('dashboard')}
-          >
-            <span style={operatorStyles.sidebarIcon}>📊</span>
-            Dashboard
-          </button>
-          
-          <div style={operatorStyles.sidebarDropdown}>
-            <button 
-              style={{ 
-                ...operatorStyles.sidebarButton,
-                ...(activeTab.startsWith('registration') && operatorStyles.activeSidebarButton)
-              }}
-              onClick={() => setShowRegistrationDropdown(!showRegistrationDropdown)}
-            >
-              <span style={operatorStyles.sidebarIcon}>📝</span>
-              Registration
-              <span style={operatorStyles.dropdownArrow}>
-                {showRegistrationDropdown ? '▲' : '▼'}
-              </span>
-            </button>
-            
-            {showRegistrationDropdown && (
-              <div style={operatorStyles.sidebarDropdownMenu}>
+    <div style={styles.container}>
+      <div style={{ padding: '20px' }}>
+        {/* Header */}
+        <div style={styles.header}>
+          <div style={styles.headerContent}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h1 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '5px' }}>
+                  🚚 Operator Dashboard
+                </h1>
+                <div style={{ opacity: 0.9, fontSize: '14px' }}>
+                  {company.name || 'Company Loading...'} • {company.financialYear || 'FY 2026'}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '10px' }}>
                 <button 
-                  style={operatorStyles.sidebarDropdownItem}
-                  onClick={() => {
-                    setActiveTab('driver-registration');
-                    setShowRegistrationDropdown(false);
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: 'rgba(255,255,255,0.2)',
+                    color: 'white',
+                    border: '1px solid rgba(255,255,255,0.3)',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
                   }}
+                  onClick={() => navigate('/profile')}
                 >
-                  🚚 Driver
+                  👤 Profile
                 </button>
                 <button 
-                  style={operatorStyles.sidebarDropdownItem}
-                  onClick={() => {
-                    setActiveTab('restaurant-registration');
-                    setShowRegistrationDropdown(false);
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: 'rgba(255,255,255,0.2)',
+                    color: 'white',
+                    border: '1px solid rgba(255,255,255,0.3)',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
                   }}
+                  onClick={handleSignOut}
                 >
-                  🍽️ Restaurant
-                </button>
-                <button 
-                  style={operatorStyles.sidebarDropdownItem}
-                  onClick={() => {
-                    setActiveTab('supplier-registration');
-                    setShowRegistrationDropdown(false);
-                  }}
-                >
-                  🏭 Supplier
-                </button>
-                {/* PRODUCT REGISTRATION IN DROPDOWN */}
-                <button 
-                  style={operatorStyles.sidebarDropdownItem}
-                  onClick={() => {
-                    setActiveTab('product-registration');
-                    setShowRegistrationDropdown(false);
-                  }}
-                >
-                  📦 Product Registration
+                  🚪 Logout
                 </button>
               </div>
-            )}
-          </div>
-          
-          <div style={operatorStyles.sidebarDropdown}>
-            <button 
-              style={{ 
-                ...operatorStyles.sidebarButton,
-                ...(activeTab.startsWith('drivers') || 
-                    activeTab.startsWith('customers') || 
-                    activeTab.startsWith('suppliers') ? operatorStyles.activeSidebarButton : {})
-              }}
-              onClick={() => setShowUserDropdown(!showUserDropdown)}
-            >
-              <span style={operatorStyles.sidebarIcon}>👥</span>
-              User Management
-              <span style={operatorStyles.dropdownArrow}>
-                {showUserDropdown ? '▲' : '▼'}
-              </span>
-            </button>
-            
-            {showUserDropdown && (
-              <div style={operatorStyles.sidebarDropdownMenu}>
-                <button 
-                  style={operatorStyles.sidebarDropdownItem}
-                  onClick={() => {
-                    setActiveTab('drivers');
-                    setShowUserDropdown(false);
-                  }}
-                >
-                  🚚 Drivers ({getUsersByRole('driver').length})
-                </button>
-                <button 
-                  style={operatorStyles.sidebarDropdownItem}
-                  onClick={() => {
-                    setActiveTab('customers');
-                    setShowUserDropdown(false);
-                  }}
-                >
-                  👥 Customers ({getUsersByRole('customer').length})
-                </button>
-                <button 
-                  style={operatorStyles.sidebarDropdownItem}
-                  onClick={() => {
-                    setActiveTab('suppliers');
-                    setShowUserDropdown(false);
-                  }}
-                >
-                  🏭 Suppliers ({getUsersByRole('supplier').length})
-                </button>
-              </div>
-            )}
-          </div>
-          
-          {/* SEPARATE PRODUCT REGISTRATION BUTTON */}
-          <button 
-            style={{ 
-              ...operatorStyles.sidebarButton,
-              ...(activeTab === 'product-registration' && operatorStyles.activeSidebarButton)
-            }}
-            onClick={() => setActiveTab('product-registration')}
-          >
-            <span style={operatorStyles.sidebarIcon}>📦</span>
-            Product Registration
-          </button>
-          
-          <button 
-            style={{ 
-              ...operatorStyles.sidebarButton,
-              ...(activeTab === 'daily-operations' && operatorStyles.activeSidebarButton)
-            }}
-            onClick={() => setActiveTab('daily-operations')}
-          >
-            <span style={operatorStyles.sidebarIcon}>⚡</span>
-            Daily Operations
-          </button>
-          
-          <button 
-            style={{ 
-              ...operatorStyles.sidebarButton,
-              ...(activeTab === 'activities' && operatorStyles.activeSidebarButton)
-            }}
-            onClick={() => setActiveTab('activities')}
-          >
-            <span style={operatorStyles.sidebarIcon}>📋</span>
-            Activities ({activities.length})
-          </button>
-        </div>
-        
-        <div style={operatorStyles.sidebarFooter}>
-          <button onClick={handleSignOut} style={operatorStyles.signOutButton}>
-            <span style={operatorStyles.sidebarIcon}>🚪</span>
-            Sign Out
-          </button>
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <div style={operatorStyles.mainContentArea}>
-        <div style={operatorStyles.mainHeader}>
-          <h1 style={operatorStyles.mainTitle}>
-            {activeTab === 'dashboard' && '📊 Dashboard'}
-            {activeTab === 'driver-registration' && '🚚 Driver Registration'}
-            {activeTab === 'restaurant-registration' && '🍽️ Restaurant Registration'}
-            {activeTab === 'supplier-registration' && '🏭 Supplier Registration'}
-            {activeTab === 'product-registration' && '📦 Product Registration'}
-            {activeTab === 'drivers' && '🚚 Drivers Management'}
-            {activeTab === 'customers' && '👥 Customers Management'}
-            {activeTab === 'suppliers' && '🏭 Suppliers Management'}
-            {activeTab === 'daily-operations' && '⚡ Daily Operations'}
-            {activeTab === 'activities' && '📋 Activity Log'}
-          </h1>
-          <div style={operatorStyles.headerStats}>
-            <span style={operatorStyles.statBadge}>🚚 {stats.totalDrivers}</span>
-            <span style={operatorStyles.statBadge}>👥 {stats.totalCustomers}</span>
-            <span style={operatorStyles.statBadge}>🏭 {stats.totalSuppliers}</span>
-            <span style={operatorStyles.statBadge}>📦 {stats.totalProducts}</span>
-          </div>
-        </div>
-
-        <div style={operatorStyles.contentContainer}>
-          {loading ? (
-            <div style={operatorStyles.loadingState}>
-              <div style={operatorStyles.loadingSpinner}></div>
-              <p>Loading...</p>
             </div>
-          ) : (
-            <>
-              {activeTab === 'dashboard' && renderDashboard()}
-              {activeTab === 'driver-registration' && renderRegistrationContent('driver')}
-              {activeTab === 'restaurant-registration' && renderRegistrationContent('restaurant')}
-              {activeTab === 'supplier-registration' && renderRegistrationContent('supplier')}
-              {/* USING YOUR EXISTING PRODUCTREGISTRATION.JSX */}
-              {activeTab === 'product-registration' && <ProductRegistration />}
-              {activeTab === 'drivers' && renderUserManagement(getUsersByRole('driver'), 'driver', '#10b981')}
-              {activeTab === 'customers' && renderUserManagement(getUsersByRole('customer'), 'customer', '#8b5cf6')}
-              {activeTab === 'suppliers' && renderUserManagement(getUsersByRole('supplier'), 'supplier', '#f59e0b')}
-              {activeTab === 'daily-operations' && renderDailyOperations()}
-              {activeTab === 'activities' && renderActivities()}
-            </>
-          )}
+          </div>
+        </div>
+
+        {/* Main Content with Sidebar */}
+        <div style={{ display: 'flex', gap: '20px', marginTop: '20px' }}>
+          {/* Left Sidebar - Vertical Tabs */}
+          <div style={{ width: '250px' }}>
+            <div style={styles.sidebar}>
+              {/* Dashboard */}
+              <div style={styles.sidebarSection}>
+                <div style={styles.sidebarTitle}>MAIN</div>
+                <button
+                  style={{
+                    ...styles.tabButton,
+                    ...(activeTab === 'dashboard' ? styles.tabButtonActive : {})
+                  }}
+                  onClick={() => setActiveTab('dashboard')}
+                >
+                  <span style={styles.tabIcon}>📊</span>
+                  Dashboard
+                </button>
+              </div>
+
+              {/* Category Management */}
+              <div style={styles.sidebarSection}>
+                <div style={styles.sidebarTitle}>CATEGORY MANAGEMENT</div>
+                <button
+                  style={{
+                    ...styles.tabButton,
+                    ...(activeTab === 'category-management' ? styles.tabButtonActive : {})
+                  }}
+                  onClick={() => setActiveTab('category-management')}
+                >
+                  <span style={styles.tabIcon}>📁</span>
+                  Category Management
+                </button>
+              </div>
+
+              {/* Ledger */}
+              <div style={styles.sidebarSection}>
+                <div style={styles.sidebarTitle}>LEDGER</div>
+                <button
+                  style={{
+                    ...styles.tabButton,
+                    ...(activeTab === 'ledger' ? styles.tabButtonActive : {})
+                  }}
+                  onClick={() => setActiveTab('ledger')}
+                >
+                  <span style={styles.tabIcon}>📝</span>
+                  Master Registration
+                </button>
+                <button
+                  style={{
+                    ...styles.tabButton,
+                    ...(activeTab === 'customer-price-list' ? styles.tabButtonActive : {})
+                  }}
+                  onClick={() => setActiveTab('customer-price-list')}
+                >
+                  <span style={styles.tabIcon}>💰</span>
+                  Customer Price List
+                </button>
+                <button
+                  style={{
+                    ...styles.tabButton,
+                    ...(activeTab === 'supplier-price-list' ? styles.tabButtonActive : {})
+                  }}
+                  onClick={() => setActiveTab('supplier-price-list')}
+                >
+                  <span style={styles.tabIcon}>🏢</span>
+                  Supplier Price List
+                </button>
+              </div>
+
+              {/* Daily Operations */}
+              <div style={styles.sidebarSection}>
+                <div style={styles.sidebarTitle}>DAILY OPERATIONS</div>
+                <button
+                  style={{
+                    ...styles.tabButton,
+                    ...(activeTab === 'sales-management' ? styles.tabButtonActive : {})
+                  }}
+                  onClick={() => setActiveTab('sales-management')}
+                >
+                  <span style={styles.tabIcon}>💰</span>
+                  Sales Management
+                </button>
+                <button
+                  style={{
+                    ...styles.tabButton,
+                    ...(activeTab === 'account-receivable' ? styles.tabButtonActive : {})
+                  }}
+                  onClick={() => setActiveTab('account-receivable')}
+                >
+                  <span style={styles.tabIcon}>📄</span>
+                  Account Receivable
+                </button>
+                <button
+                  style={{
+                    ...styles.tabButton,
+                    ...(activeTab === 'purchase-management' ? styles.tabButtonActive : {})
+                  }}
+                  onClick={() => setActiveTab('purchase-management')}
+                >
+                  <span style={styles.tabIcon}>🛒</span>
+                  Purchase Management
+                </button>
+                <button
+                  style={{
+                    ...styles.tabButton,
+                    ...(activeTab === 'account-payable' ? styles.tabButtonActive : {})
+                  }}
+                  onClick={() => setActiveTab('account-payable')}
+                >
+                  <span style={styles.tabIcon}>💳</span>
+                  Account Payable
+                </button>
+                <button
+                  style={{
+                    ...styles.tabButton,
+                    ...(activeTab === 'inventory-management' ? styles.tabButtonActive : {})
+                  }}
+                  onClick={() => setActiveTab('inventory-management')}
+                >
+                  <span style={styles.tabIcon}>📦</span>
+                  Inventory Management
+                </button>
+              </div>
+
+              {/* Operations */}
+              <div style={styles.sidebarSection}>
+                <div style={styles.sidebarTitle}>OPERATIONS</div>
+                <button
+                  style={{
+                    ...styles.tabButton,
+                    ...(activeTab === 'delivery-management' ? styles.tabButtonActive : {})
+                  }}
+                  onClick={() => setActiveTab('delivery-management')}
+                >
+                  <span style={styles.tabIcon}>🚚</span>
+                  Delivery Management
+                </button>
+                <button
+                  style={{
+                    ...styles.tabButton,
+                    ...(activeTab === 'driver-assignments' ? styles.tabButtonActive : {})
+                  }}
+                  onClick={() => setActiveTab('driver-assignments')}
+                >
+                  <span style={styles.tabIcon}>👨‍✈️</span>
+                  Driver Assignments
+                </button>
+                <button
+                  style={{
+                    ...styles.tabButton,
+                    ...(activeTab === 'delivery-tracking' ? styles.tabButtonActive : {})
+                  }}
+                  onClick={() => setActiveTab('delivery-tracking')}
+                >
+                  <span style={styles.tabIcon}>🗺️</span>
+                  Delivery Tracking
+                </button>
+              </div>
+
+              {/* Documents */}
+              <div style={styles.sidebarSection}>
+                <div style={styles.sidebarTitle}>DOCUMENTS</div>
+                <button
+                  style={{
+                    ...styles.tabButton,
+                    ...(activeTab === 'invoice' ? styles.tabButtonActive : {})
+                  }}
+                  onClick={() => setActiveTab('invoice')}
+                >
+                  <span style={styles.tabIcon}>🧾</span>
+                  Invoice Printing
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Main Content Area */}
+          <div style={{ flex: 1 }}>
+            <div style={styles.contentArea}>
+              {loading ? renderLoading() : (
+                <div>
+                  {/* Dashboard Tab */}
+                  {activeTab === 'dashboard' && renderDashboard()}
+
+                  {/* Category Management Tab */}
+                  {activeTab === 'category-management' && (
+                    <CategoryManagement 
+                      company={company}
+                      currentUser={currentUser}
+                    />
+                  )}
+
+                  {/* Ledger Tab */}
+                  {activeTab === 'ledger' && (
+                    <LedgerTab 
+                      company={company}
+                      currentUser={currentUser}
+                      customers={customers}
+                      suppliers={suppliers}
+                      drivers={drivers}
+                      products={products}
+                      formatCurrency={formatCurrency}
+                    />
+                  )}
+
+                  {/* Customer Price List */}
+                  {activeTab === 'customer-price-list' && (
+                    <div style={styles.card}>
+                      <h2 style={{ color: '#2c3e50', marginBottom: '20px' }}>Customer Product Price List</h2>
+                      <div style={{ textAlign: 'center', padding: '50px', color: '#95a5a6' }}>
+                        <div style={{ fontSize: '48px', marginBottom: '20px' }}>💰</div>
+                        <p style={{ fontSize: '16px' }}>Customer price list functionality coming soon</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Supplier Price List */}
+                  {activeTab === 'supplier-price-list' && (
+                    <div style={styles.card}>
+                      <h2 style={{ color: '#2c3e50', marginBottom: '20px' }}>Supplier Product Price List</h2>
+                      <div style={{ textAlign: 'center', padding: '50px', color: '#95a5a6' }}>
+                        <div style={{ fontSize: '48px', marginBottom: '20px' }}>🏢</div>
+                        <p style={{ fontSize: '16px' }}>Supplier price list functionality coming soon</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Daily Operations - Sales Management */}
+                  {activeTab === 'sales-management' && (
+                    <SalesManagement 
+                      company={company}
+                      currentUser={currentUser}
+                      customers={customers}
+                      products={products}
+                      formatCurrency={formatCurrency}
+                    />
+                  )}
+
+                  {/* Account Receivable */}
+                  {activeTab === 'account-receivable' && (
+                    <AccountReceivableManagement 
+                      company={company}
+                      currentUser={currentUser}
+                      customers={customers}
+                      formatCurrency={formatCurrency}
+                    />
+                  )}
+
+                  {/* Purchase Management */}
+                  {activeTab === 'purchase-management' && (
+                    <PurchaseManagement 
+                      company={company}
+                      currentUser={currentUser}
+                      suppliers={suppliers}
+                      products={products}
+                      formatCurrency={formatCurrency}
+                    />
+                  )}
+
+                  {/* Account Payable */}
+                  {activeTab === 'account-payable' && (
+                    <AccountPayableManagement 
+                      company={company}
+                      currentUser={currentUser}
+                      suppliers={suppliers}
+                      formatCurrency={formatCurrency}
+                    />
+                  )}
+
+                  {/* Inventory Management */}
+                  {activeTab === 'inventory-management' && (
+                    <InventoryManagement 
+                      company={company}
+                      currentUser={currentUser}
+                      products={products}
+                      formatCurrency={formatCurrency}
+                    />
+                  )}
+
+                  {/* Operations Tabs */}
+                  {activeTab === 'delivery-management' && (
+                    <DeliveryManagement 
+                      deliveries={deliveries}
+                      drivers={drivers}
+                      formatDate={formatDate}
+                      getStatusColor={getStatusColor}
+                    />
+                  )}
+
+                  {activeTab === 'driver-assignments' && (
+                    <DriverAssignments 
+                      deliveries={deliveries.filter(d => d.status === 'pending' || d.status === 'assigned')}
+                      drivers={drivers}
+                    />
+                  )}
+
+                  {activeTab === 'delivery-tracking' && (
+                    <DeliveryTrackingMap 
+                      deliveries={deliveries.filter(d => ['assigned', 'picked_up', 'in_transit'].includes(d.status))}
+                      drivers={drivers}
+                    />
+                  )}
+
+                  {/* Invoice Printing */}
+                  {activeTab === 'invoice' && (
+                    <InvoicePrinting 
+                      company={company}
+                      currentUser={currentUser}
+                      customers={customers}
+                      products={products}
+                      formatCurrency={formatCurrency}
+                      formatDate={formatDate}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div style={styles.footer}>
+          © {new Date().getFullYear()} {company.name || 'Logistics System'} • 
+          Operator Dashboard • 
+          Last updated: {formatDate(new Date())}
         </div>
       </div>
     </div>
   );
 };
 
-// Modern Blue and Black Theme Styles
-const operatorStyles = {
-  operatorContainer: {
-    display: 'flex',
-    minHeight: '100vh',
-    backgroundColor: '#f8fafc'
-  },
-  // Sidebar Styles
-  sidebar: {
-    width: '280px',
-    backgroundColor: '#1e293b',
-    color: 'white',
-    display: 'flex',
-    flexDirection: 'column',
-    boxShadow: '2px 0 10px rgba(0,0,0,0.1)',
-    position: 'sticky',
-    top: 0,
-    height: '100vh'
-  },
-  sidebarHeader: {
-    padding: '25px 20px',
-    borderBottom: '1px solid #334155',
-    backgroundColor: '#0f172a'
-  },
-  companyName: {
-    fontSize: '20px',
-    fontWeight: 'bold',
-    marginBottom: '5px',
-    color: '#60a5fa'
-  },
-  operatorName: {
-    fontSize: '13px',
-    color: '#cbd5e1',
-    margin: 0
-  },
-  sidebarMenu: {
-    flex: 1,
-    padding: '20px 0',
-    overflowY: 'auto'
-  },
-  sidebarButton: {
-    width: '100%',
-    padding: '12px 20px',
-    backgroundColor: 'transparent',
-    border: 'none',
-    color: '#cbd5e1',
-    fontSize: '14px',
-    fontWeight: '500',
-    textAlign: 'left',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    transition: 'all 0.2s',
-    '&:hover': {
-      backgroundColor: '#334155',
-      color: 'white'
-    }
-  },
-  activeSidebarButton: {
-    backgroundColor: '#3b82f6',
-    color: 'white',
-    fontWeight: '600',
-    borderLeft: '4px solid #60a5fa'
-  },
-  sidebarIcon: {
-    fontSize: '16px',
-    width: '20px'
-  },
-  sidebarDropdown: {
-    position: 'relative'
-  },
-  dropdownArrow: {
-    marginLeft: 'auto',
-    fontSize: '10px'
-  },
-  sidebarDropdownMenu: {
-    backgroundColor: '#0f172a',
-    borderLeft: '3px solid #3b82f6',
-    marginLeft: '10px'
-  },
-  sidebarDropdownItem: {
-    width: '100%',
-    padding: '10px 20px 10px 50px',
-    backgroundColor: 'transparent',
-    border: 'none',
-    color: '#cbd5e1',
-    fontSize: '13px',
-    textAlign: 'left',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    transition: 'all 0.2s',
-    '&:hover': {
-      backgroundColor: '#1e293b',
-      color: 'white'
-    }
-  },
-  sidebarFooter: {
-    padding: '20px',
-    borderTop: '1px solid #334155',
-    backgroundColor: '#0f172a'
-  },
-  signOutButton: {
-    width: '100%',
-    padding: '10px 15px',
-    backgroundColor: '#dc2626',
-    color: 'white',
-    border: 'none',
-    borderRadius: '6px',
-    fontSize: '14px',
-    fontWeight: '500',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '8px',
-    transition: 'background-color 0.2s',
-    '&:hover': {
-      backgroundColor: '#b91c1c'
-    }
-  },
-  // Main Content Area
-  mainContentArea: {
-    flex: 1,
-    padding: '25px',
-    overflowY: 'auto',
-    backgroundColor: '#f1f5f9'
-  },
-  mainHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '25px',
-    paddingBottom: '15px',
-    borderBottom: '2px solid #e2e8f0',
-    backgroundColor: 'white',
-    padding: '20px',
-    borderRadius: '10px',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
-  },
-  mainTitle: {
-    fontSize: '28px',
-    fontWeight: 'bold',
-    color: '#1e293b',
-    margin: 0
-  },
-  headerStats: {
-    display: 'flex',
-    gap: '10px',
-    flexWrap: 'wrap'
-  },
-  statBadge: {
-    backgroundColor: '#e2e8f0',
-    color: '#475569',
-    padding: '6px 12px',
-    borderRadius: '20px',
-    fontSize: '14px',
-    fontWeight: '500',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '5px'
-  },
-  contentContainer: {
-    backgroundColor: 'white',
-    borderRadius: '12px',
-    padding: '25px',
-    boxShadow: '0 2px 10px rgba(0,0,0,0.05)',
-    minHeight: 'calc(100vh - 180px)'
-  },
-  // Common Components
-  section: {
-    marginBottom: '30px'
-  },
-  sectionTitle: {
-    fontSize: '22px',
-    fontWeight: 'bold',
-    color: '#1e293b',
-    marginBottom: '20px',
-    paddingBottom: '10px',
-    borderBottom: '2px solid #3b82f6'
-  },
-  statsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: '20px',
-    marginBottom: '30px'
-  },
-  statCard: {
-    backgroundColor: 'white',
-    border: '1px solid #e2e8f0',
-    borderRadius: '10px',
-    padding: '22px',
-    textAlign: 'center',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-    transition: 'all 0.2s',
-    '&:hover': {
-      transform: 'translateY(-2px)',
-      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-      borderColor: '#3b82f6'
-    }
-  },
-  statHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '15px',
-    marginBottom: '10px'
-  },
-  statIcon: {
-    fontSize: '28px'
-  },
-  statValue: {
-    fontSize: '34px',
-    fontWeight: 'bold'
-  },
-  statLabel: {
-    color: '#64748b',
-    fontSize: '15px',
-    fontWeight: '500'
-  },
-  // User Management
-  userManagementHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '25px',
-    flexWrap: 'wrap',
-    gap: '15px'
-  },
-  userCount: {
-    color: '#64748b',
-    fontSize: '15px',
-    fontWeight: '500'
-  },
-  userList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '18px'
-  },
-  userItem: {
-    backgroundColor: 'white',
-    border: '1px solid #e2e8f0',
-    borderRadius: '10px',
-    padding: '20px',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: '20px',
-    transition: 'all 0.2s',
-    '&:hover': {
-      borderColor: '#3b82f6',
-      boxShadow: '0 2px 8px rgba(59, 130, 246, 0.1)'
-    }
-  },
-  userInfo: {
-    flex: 1
-  },
-  userMain: {
-    marginBottom: '10px'
-  },
-  userName: {
-    fontSize: '17px',
-    fontWeight: '600',
-    color: '#1e293b',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
-    flexWrap: 'wrap',
-    marginBottom: '8px'
-  },
-  roleBadge: {
-    color: 'white',
-    padding: '3px 10px',
-    borderRadius: '15px',
-    fontSize: '11px',
-    fontWeight: '600'
-  },
-  activeBadge: {
-    backgroundColor: '#10b981',
-    color: 'white',
-    padding: '3px 10px',
-    borderRadius: '15px',
-    fontSize: '11px',
-    fontWeight: '600'
-  },
-  inactiveBadge: {
-    backgroundColor: '#64748b',
-    color: 'white',
-    padding: '3px 10px',
-    borderRadius: '15px',
-    fontSize: '11px',
-    fontWeight: '600'
-  },
-  userDetails: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '5px',
-    marginBottom: '10px'
-  },
-  userDetail: {
-    color: '#64748b',
-    fontSize: '13px'
-  },
-  userDate: {
-    color: '#94a3b8',
-    fontSize: '12px'
-  },
-  userActions: {
-    display: 'flex',
-    gap: '10px',
-    flexDirection: 'column',
-    minWidth: '120px'
-  },
-  activateButton: {
-    backgroundColor: '#10b981',
-    color: 'white',
-    border: 'none',
-    padding: '8px 14px',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '13px',
-    fontWeight: '500',
-    transition: 'background-color 0.2s',
-    '&:hover': {
-      backgroundColor: '#059669'
-    }
-  },
-  deactivateButton: {
-    backgroundColor: '#f59e0b',
-    color: 'white',
-    border: 'none',
-    padding: '8px 14px',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '13px',
-    fontWeight: '500',
-    transition: 'background-color 0.2s',
-    '&:hover': {
-      backgroundColor: '#d97706'
-    }
-  },
-  deleteButton: {
-    backgroundColor: '#ef4444',
-    color: 'white',
-    border: 'none',
-    padding: '8px 14px',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '13px',
-    fontWeight: '500',
-    transition: 'background-color 0.2s',
-    '&:hover': {
-      backgroundColor: '#dc2626'
-    }
-  },
-  // Activities
-  activitiesList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '15px'
-  },
-  activitiesListFull: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '15px',
-    maxHeight: '600px',
-    overflowY: 'auto',
-    paddingRight: '10px'
-  },
-  activityItem: {
-    backgroundColor: '#f8fafc',
-    border: '1px solid #e2e8f0',
-    borderRadius: '8px',
-    padding: '18px'
-  },
-  activityHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: '10px',
-    flexWrap: 'wrap',
-    gap: '10px'
-  },
-  activityAction: {
-    fontWeight: '600',
-    color: '#1e293b',
-    fontSize: '15px'
-  },
-  activityTime: {
-    color: '#64748b',
-    fontSize: '13px'
-  },
-  activityDetails: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '5px',
-    fontSize: '14px',
-    color: '#475569'
-  },
-  // Daily Operations
-  operationsGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-    gap: '25px',
-    marginTop: '20px'
-  },
-  operationCard: {
-    backgroundColor: 'white',
-    border: '1px solid #e2e8f0',
-    borderRadius: '12px',
-    padding: '25px',
-    textAlign: 'center',
-    transition: 'all 0.3s',
-    '&:hover': {
-      transform: 'translateY(-5px)',
-      boxShadow: '0 10px 25px rgba(0,0,0,0.08)',
-      borderColor: '#3b82f6'
-    }
-  },
-  operationIcon: {
-    fontSize: '48px',
-    marginBottom: '20px',
-    color: '#3b82f6'
-  },
-  operationTitle: {
-    fontSize: '20px',
-    fontWeight: '600',
-    color: '#1e293b',
-    marginBottom: '12px'
-  },
-  operationDescription: {
-    color: '#64748b',
-    fontSize: '14px',
-    marginBottom: '25px',
-    lineHeight: '1.5',
-    minHeight: '40px'
-  },
-  operationButton: {
-    backgroundColor: '#3b82f6',
-    color: 'white',
-    border: 'none',
-    padding: '12px 24px',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: '500',
-    transition: 'background-color 0.2s',
-    width: '100%',
-    '&:hover': {
-      backgroundColor: '#2563eb'
-    }
-  },
-  // Registration
-  registrationHeader: {
-    marginBottom: '25px'
-  },
-  registrationTitle: {
-    fontSize: '26px',
-    fontWeight: 'bold',
-    color: '#1e293b',
-    marginBottom: '20px'
-  },
-  registrationTypeTabs: {
-    display: 'flex',
-    gap: '10px',
-    marginBottom: '25px',
-    flexWrap: 'wrap'
-  },
-  registrationTypeTab: {
-    backgroundColor: 'white',
-    border: '2px solid #e2e8f0',
-    padding: '12px 24px',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    fontSize: '15px',
-    fontWeight: '500',
-    color: '#64748b',
-    transition: 'all 0.2s'
-  },
-  activeRegistrationTypeTab: {
-    backgroundColor: '#3b82f6',
-    color: 'white',
-    borderColor: '#3b82f6'
-  },
-  // Common
-  formDescription: {
-    color: '#64748b',
-    marginBottom: '25px',
-    fontSize: '15px',
-    lineHeight: '1.6'
-  },
-  emptyState: {
-    textAlign: 'center',
-    padding: '50px 30px',
-    color: '#64748b',
-    backgroundColor: '#f8fafc',
-    borderRadius: '10px',
-    border: '2px dashed #e2e8f0'
-  },
-  emptyStateIcon: {
-    fontSize: '60px',
-    marginBottom: '20px',
-    opacity: '0.5'
-  },
-  viewAllButton: {
-    backgroundColor: 'transparent',
-    border: '2px solid #3b82f6',
-    color: '#3b82f6',
-    padding: '10px 20px',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    fontWeight: '500',
-    transition: 'all 0.2s',
-    marginTop: '15px',
-    '&:hover': {
-      backgroundColor: '#3b82f6',
-      color: 'white'
-    }
-  },
-  primaryButton: {
-    backgroundColor: '#3b82f6',
-    color: 'white',
-    border: 'none',
-    padding: '12px 24px',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    fontSize: '15px',
-    fontWeight: '500',
-    transition: 'background-color 0.2s',
-    '&:hover': {
-      backgroundColor: '#2563eb'
-    }
-  },
-  container: {
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    minHeight: '100vh',
-    padding: '20px',
-    backgroundColor: '#f1f5f9'
-  },
-  card: {
-    backgroundColor: 'white',
-    borderRadius: '12px',
-    padding: '35px',
-    boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
-    textAlign: 'center',
-    maxWidth: '450px',
-    width: '100%'
-  },
-  loadingState: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '50px',
-    color: '#64748b'
-  },
-  loadingSpinner: {
-    width: '50px',
-    height: '50px',
-    border: '4px solid #f1f5f9',
-    borderTop: '4px solid #3b82f6',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite',
-    marginBottom: '20px'
-  },
-  loadingSpinnerSmall: {
-    width: '18px',
-    height: '18px',
-    border: '2px solid #f1f5f9',
-    borderTop: '2px solid #ffffff',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite'
-  }
-};
-
-// CSS Injection
-const OperatorWithCSS = (props) => {
-  useEffect(() => {
-    if (typeof document !== 'undefined') {
-      const spinnerStyles = `
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-      `;
-
-      if (!document.getElementById('operator-spinner-styles')) {
-        const styleElement = document.createElement('style');
-        styleElement.id = 'operator-spinner-styles';
-        styleElement.textContent = spinnerStyles;
-        document.head.appendChild(styleElement);
-      }
-    }
-  }, []);
-
-  return <Operator {...props} />;
-};
-
-export default OperatorWithCSS;
+// ⭐ FIXED: Changed to simple export - removed OperatorWithCSS duplication
+export default Operator;

@@ -1,9 +1,10 @@
-// src/firebase.js
+// src/firebase.js - CORRECTED VERSION
 import { initializeApp } from 'firebase/app';
 import { 
   getFirestore, 
   collection, 
   doc, 
+  setDoc,
   getDoc, 
   getDocs, 
   query, 
@@ -12,7 +13,8 @@ import {
   addDoc, 
   updateDoc, 
   deleteDoc, 
-  serverTimestamp 
+  serverTimestamp,
+  writeBatch
 } from 'firebase/firestore';
 import { 
   getAuth, 
@@ -23,7 +25,7 @@ import {
   browserLocalPersistence,
   onAuthStateChanged
 } from 'firebase/auth';
-import { getFunctions } from 'firebase/functions'; // ADD THIS LINE
+import { getFunctions } from 'firebase/functions';
 
 // CONFIG
 const firebaseConfig = {
@@ -53,25 +55,141 @@ setPersistence(auth, browserLocalPersistence)
 // INITIALIZE FIRESTORE
 const db = getFirestore(app);
 
-// INITIALIZE FIREBASE FUNCTIONS - ADD THIS
+// INITIALIZE FIREBASE FUNCTIONS
 const functions = getFunctions(app);
 
-// Optional: If you want to use emulator for local development
-// import { connectFunctionsEmulator } from 'firebase/functions';
-// if (window.location.hostname === 'localhost') {
-//   connectFunctionsEmulator(functions, 'localhost', 5001);
-// }
+// ============ HELPER FUNCTIONS (DECLARE FIRST) ============
 
 // JAPAN FY FUNCTION
-export const getCurrentFinancialYear = () => {
+const getCurrentFinancialYear = () => {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth(); // 0-11
   return month >= 3 ? `${year}_${year + 1}` : `${year - 1}_${year}`;
 };
 
+// CATEGORY HELPER FUNCTIONS
+const initializeCategoriesCollection = async (companyId, companyName, userId) => {
+  try {
+    // Check if categories collection exists for this company
+    const categoriesQuery = query(
+      collection(db, 'categories'),
+      where('companyId', '==', companyId)
+    );
+    const categoriesSnapshot = await getDocs(categoriesQuery);
+    
+    if (categoriesSnapshot.empty) {
+      console.log('Creating default categories for company:', companyId);
+      
+      // Create default categories
+      const defaultCategories = [
+        { 
+          name: 'Meat & Poultry', 
+          type: 'food', 
+          description: '肉類 (Meat & Poultry)', 
+          taxRate: 8, 
+          isActive: true 
+        },
+        { 
+          name: 'Vegetables', 
+          type: 'food', 
+          description: '野菜類 (Vegetables)', 
+          taxRate: 8, 
+          isActive: true 
+        },
+        { 
+          name: 'Packaging', 
+          type: 'non-food', 
+          description: '包装材 (Packaging Materials)', 
+          taxRate: 10, 
+          isActive: true 
+        },
+        { 
+          name: 'Spices & Masalas', 
+          type: 'food', 
+          description: 'スパイスとマサラ (Spices & Masalas)', 
+          taxRate: 8, 
+          isActive: true 
+        },
+        { 
+          name: 'Dairy', 
+          type: 'food', 
+          description: '乳製品 (Dairy Products)', 
+          taxRate: 8, 
+          isActive: true 
+        }
+      ];
+      
+      const batch = writeBatch(db);
+      
+      defaultCategories.forEach((category, index) => {
+        const categoryRef = doc(collection(db, 'categories'));
+        batch.set(categoryRef, {
+          ...category,
+          companyId: companyId,
+          companyName: companyName || 'Unknown Company',
+          createdAt: new Date(),
+          createdBy: userId || 'system',
+          createdById: userId || 'system'
+        });
+      });
+      
+      await batch.commit();
+      console.log('Default categories created successfully');
+      return { success: true, count: defaultCategories.length };
+    } else {
+      console.log('Categories already exist for company:', companyId);
+      return { success: true, count: categoriesSnapshot.size };
+    }
+    
+  } catch (error) {
+    console.error('Error initializing categories:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+const getCategoriesByCompany = async (companyId) => {
+  try {
+    const categoriesQuery = query(
+      collection(db, 'categories'),
+      where('companyId', '==', companyId),
+      where('isActive', '==', true)
+    );
+    const categoriesSnapshot = await getDocs(categoriesQuery);
+    
+    const categories = categoriesSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    
+    return { success: true, categories };
+  } catch (error) {
+    console.error('Error getting categories:', error);
+    return { success: false, error: error.message, categories: [] };
+  }
+};
+
+const addCategory = async (categoryData) => {
+  try {
+    const categoryRef = doc(collection(db, 'categories'));
+    await setDoc(categoryRef, {
+      ...categoryData,
+      createdAt: new Date()
+    });
+    
+    return { 
+      success: true, 
+      id: categoryRef.id,
+      message: 'Category added successfully'
+    };
+  } catch (error) {
+    console.error('Error adding category:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 // AUTHENTICATION FUNCTIONS
-export const registerUserWithEmail = async (email, password) => {
+const registerUserWithEmail = async (email, password) => {
   try {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     return { success: true, user: userCredential.user };
@@ -80,7 +198,7 @@ export const registerUserWithEmail = async (email, password) => {
   }
 };
 
-export const loginUserWithEmail = async (email, password) => {
+const loginUserWithEmail = async (email, password) => {
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     return { success: true, user: userCredential.user };
@@ -89,7 +207,7 @@ export const loginUserWithEmail = async (email, password) => {
   }
 };
 
-export const logoutUser = async () => {
+const logoutUser = async () => {
   try {
     await signOut(auth);
     return { success: true };
@@ -99,7 +217,7 @@ export const logoutUser = async () => {
 };
 
 // MOBILE NUMBER AUTHENTICATION HELPER FUNCTIONS
-export const findUserByMobileNumber = async (mobileNumber) => {
+const findUserByMobileNumber = async (mobileNumber) => {
   try {
     const usersQuery = query(
       collection(db, 'users'),
@@ -122,7 +240,7 @@ export const findUserByMobileNumber = async (mobileNumber) => {
   }
 };
 
-export const registerUserWithMobile = async (userData) => {
+const registerUserWithMobile = async (userData) => {
   const { mobileNumber, password, name, role, companyId, current_fy, ...additionalData } = userData;
   
   try {
@@ -150,6 +268,9 @@ export const registerUserWithMobile = async (userData) => {
     // Save user data to Firestore
     await setDoc(doc(db, 'users', user.uid), userDocData);
 
+    // Initialize default categories for this company
+    await initializeCategoriesCollection(companyId, name, user.uid);
+
     return { 
       success: true, 
       user: user,
@@ -165,7 +286,7 @@ export const registerUserWithMobile = async (userData) => {
   }
 };
 
-export const loginUserWithMobile = async (mobileNumber, password) => {
+const loginUserWithMobile = async (mobileNumber, password) => {
   try {
     // Find user by mobile number
     const userInfo = await findUserByMobileNumber(mobileNumber);
@@ -182,6 +303,11 @@ export const loginUserWithMobile = async (mobileNumber, password) => {
     
     // Sign in with email and password
     const userCredential = await signInWithEmailAndPassword(auth, authEmail, password);
+    
+    // Initialize categories if needed
+    if (userInfo.companyId) {
+      await initializeCategoriesCollection(userInfo.companyId, userInfo.companyName, userInfo.uid);
+    }
     
     return { 
       success: true, 
@@ -214,15 +340,21 @@ export const loginUserWithMobile = async (mobileNumber, password) => {
   }
 };
 
-// FIREBASE EXPORTS
+// ============ EXPORTS (AFTER FUNCTION DECLARATIONS) ============
+
+// Export core Firebase instances
 export { 
-  app, // Add this if needed
+  app,
   auth, 
   db,
-  functions, // ADD THIS - Export the functions instance
-  // Firestore functions
+  functions
+};
+
+// Export all Firestore functions
+export {
   collection,
   doc,
+  setDoc,
   getDoc,
   getDocs,
   query,
@@ -232,11 +364,29 @@ export {
   updateDoc,
   deleteDoc,
   serverTimestamp,
-  // Auth functions
+  writeBatch
+};
+
+// Export auth functions
+export {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged
 };
 
-console.log('Firebase + Auth + FY + Functions Ready - Digital Bhai');
+// Export helper functions (NOW THEY ARE DEFINED!)
+export {
+  getCurrentFinancialYear,
+  initializeCategoriesCollection,
+  getCategoriesByCompany,
+  addCategory,
+  registerUserWithEmail,
+  loginUserWithEmail,
+  logoutUser,
+  findUserByMobileNumber,
+  registerUserWithMobile,
+  loginUserWithMobile
+};
+
+console.log('Firebase initialized successfully - All exports defined');

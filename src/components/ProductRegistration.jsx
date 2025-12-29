@@ -1,8 +1,9 @@
+// components/ProductRegistration.jsx
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { db } from '../firebase';
 import { collection, addDoc, getDocs, query, where, doc, getDoc } from 'firebase/firestore';
-import './ProductMgmt.css';
+import { toast } from 'react-toastify';
 
 const ProductRegistration = () => {
   const { currentUser } = useAuth();
@@ -54,7 +55,8 @@ const ProductRegistration = () => {
     isFoodItem: true,
     barcode: '',
     sku: '',
-    hsnCode: ''
+    hsnCode: '',
+    description: ''
   });
 
   const [categories, setCategories] = useState([]);
@@ -63,6 +65,7 @@ const ProductRegistration = () => {
   const [companyId, setCompanyId] = useState(null);
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [showNewSubCategory, setShowNewSubCategory] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   // Default restaurant categories
   const defaultCategories = [
@@ -95,6 +98,7 @@ const ProductRegistration = () => {
     const fetchUserAndSuppliers = async () => {
       if (currentUser?.uid) {
         try {
+          setLoading(true);
           // Get user data to get companyId
           const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
           if (userDoc.exists()) {
@@ -119,6 +123,9 @@ const ProductRegistration = () => {
           }
         } catch (error) {
           console.error('Error fetching user data:', error);
+          toast.error('Failed to load supplier data');
+        } finally {
+          setLoading(false);
         }
       }
     };
@@ -145,6 +152,14 @@ const ProductRegistration = () => {
     }
   }, [formData.mainCategory]);
 
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
   const handleCategoryChange = (e) => {
     const selectedCategory = e.target.value;
     setFormData({
@@ -158,20 +173,32 @@ const ProductRegistration = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
+
     try {
       const finalCategory = showNewCategory ? formData.newCategory : formData.mainCategory;
       const finalSubCategory = showNewSubCategory ? formData.newSubCategory : formData.subCategory;
       
+      if (!formData.name || !finalCategory || !formData.sellPrice || !formData.price || !formData.supplierId) {
+        toast.error('Please fill all required fields: Name, Category, Purchase Price, Selling Price, and Supplier');
+        setLoading(false);
+        return;
+      }
+
       const productData = {
         ...formData,
+        name: formData.name,
         mainCategory: finalCategory,
         subCategory: finalSubCategory,
         companyId: companyId,
         createdAt: new Date(),
         createdBy: currentUser?.uid,
+        createdByEmail: currentUser?.email,
         lastUpdated: new Date(),
-        taxAmount: (formData.sellPrice * formData.taxRate / 100).toFixed(2),
-        totalPrice: (parseFloat(formData.sellPrice) + (formData.sellPrice * formData.taxRate / 100)).toFixed(2)
+        taxAmount: Math.round((formData.sellPrice * formData.taxRate / 100)),
+        totalPrice: Math.round(parseFloat(formData.sellPrice) + (formData.sellPrice * formData.taxRate / 100)),
+        currency: 'JPY',
+        status: 'active'
       };
 
       // Remove temporary fields
@@ -180,7 +207,8 @@ const ProductRegistration = () => {
 
       await addDoc(collection(db, 'products'), productData);
       
-      alert('Product registered successfully!');
+      toast.success('✅ Product registered successfully!');
+      
       // Reset form
       setFormData({
         name: '',
@@ -206,13 +234,17 @@ const ProductRegistration = () => {
         isFoodItem: true,
         barcode: '',
         sku: '',
-        hsnCode: ''
+        hsnCode: '',
+        description: ''
       });
       setShowNewCategory(false);
       setShowNewSubCategory(false);
+      
     } catch (error) {
       console.error('Error adding product:', error);
-      alert('Error registering product. Please try again.');
+      toast.error('Failed to register product: ' + error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -223,129 +255,417 @@ const ProductRegistration = () => {
     return `${categoryCode}-${randomNum}`;
   };
 
+  // Format Yen currency
+  const formatYen = (amount) => {
+    return `¥${parseInt(amount || 0).toLocaleString('ja-JP')}`;
+  };
+
+  // ============ DARK BLUE/BLACK STYLES ============
+  const styles = {
+    container: {
+      backgroundColor: '#1e293b', // Dark blue/black background
+      borderRadius: '12px',
+      padding: '25px',
+      boxShadow: '0 4px 15px rgba(0, 0, 0, 0.3)',
+      border: '1px solid #334155'
+    },
+    header: {
+      marginBottom: '30px',
+      textAlign: 'center',
+      borderBottom: '2px solid #475569',
+      paddingBottom: '20px'
+    },
+    title: {
+      fontSize: '26px',
+      fontWeight: 'bold',
+      color: '#e2e8f0', // Light text
+      marginBottom: '10px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '10px'
+    },
+    subtitle: {
+      color: '#94a3b8',
+      fontSize: '15px'
+    },
+    form: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '20px'
+    },
+    section: {
+      backgroundColor: '#0f172a', // Darker section background
+      borderRadius: '10px',
+      padding: '20px',
+      border: '1px solid #334155',
+      borderLeft: '4px solid #3b82f6',
+      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)'
+    },
+    sectionTitle: {
+      fontSize: '18px',
+      fontWeight: '600',
+      color: '#e2e8f0',
+      marginBottom: '20px',
+      paddingBottom: '10px',
+      borderBottom: '1px solid #334155',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '10px'
+    },
+    sectionIcon: {
+      fontSize: '20px',
+      color: '#3b82f6'
+    },
+    formGrid: {
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+      gap: '15px',
+      marginBottom: '15px'
+    },
+    formGroup: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '8px'
+    },
+    label: {
+      fontWeight: '500',
+      color: '#cbd5e1',
+      fontSize: '14px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '6px'
+    },
+    labelIcon: {
+      fontSize: '16px',
+      color: '#60a5fa'
+    },
+    required: {
+      color: '#ef4444'
+    },
+    input: {
+      padding: '10px 12px',
+      border: '1px solid #475569',
+      borderRadius: '6px',
+      fontSize: '14px',
+      backgroundColor: '#1e293b',
+      color: '#e2e8f0',
+      transition: 'border-color 0.2s',
+      '&:focus': {
+        outline: 'none',
+        borderColor: '#3b82f6',
+        boxShadow: '0 0 0 3px rgba(59, 130, 246, 0.2)'
+      },
+      '&:disabled': {
+        backgroundColor: '#334155',
+        color: '#94a3b8',
+        cursor: 'not-allowed'
+      }
+    },
+    select: {
+      padding: '10px 12px',
+      border: '1px solid #475569',
+      borderRadius: '6px',
+      fontSize: '14px',
+      backgroundColor: '#1e293b',
+      color: '#e2e8f0',
+      cursor: 'pointer',
+      '&:focus': {
+        outline: 'none',
+        borderColor: '#3b82f6'
+      },
+      '&:disabled': {
+        backgroundColor: '#334155',
+        color: '#94a3b8',
+        cursor: 'not-allowed'
+      }
+    },
+    inputGroup: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '10px'
+    },
+    currencySymbol: {
+      color: '#10b981',
+      fontWeight: 'bold',
+      fontSize: '16px',
+      padding: '10px',
+      backgroundColor: '#064e3b',
+      borderRadius: '6px',
+      minWidth: '40px',
+      textAlign: 'center'
+    },
+    taxDisplay: {
+      backgroundColor: '#1e293b',
+      borderRadius: '8px',
+      padding: '15px',
+      border: '1px solid #475569',
+      marginTop: '15px'
+    },
+    taxRow: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      padding: '8px 0',
+      borderBottom: '1px solid #334155'
+    },
+    taxLabel: {
+      color: '#94a3b8',
+      fontSize: '14px'
+    },
+    taxValue: {
+      color: '#e2e8f0',
+      fontWeight: '600',
+      fontSize: '14px'
+    },
+    totalValue: {
+      color: '#10b981',
+      fontWeight: 'bold',
+      fontSize: '15px'
+    },
+    toggleGroup: {
+      display: 'flex',
+      gap: '10px',
+      marginTop: '10px'
+    },
+    toggleButton: {
+      flex: 1,
+      padding: '8px 12px',
+      border: '1px solid #475569',
+      borderRadius: '6px',
+      backgroundColor: '#1e293b',
+      color: '#cbd5e1',
+      cursor: 'pointer',
+      fontSize: '13px',
+      textAlign: 'center',
+      transition: 'all 0.2s',
+      '&:hover:not(:disabled)': {
+        backgroundColor: '#334155'
+      },
+      '&:disabled': {
+        backgroundColor: '#334155',
+        color: '#64748b',
+        cursor: 'not-allowed'
+      }
+    },
+    toggleButtonActive: {
+      backgroundColor: '#3b82f6',
+      color: 'white',
+      borderColor: '#3b82f6'
+    },
+    actionButtons: {
+      display: 'flex',
+      gap: '15px',
+      justifyContent: 'center',
+      marginTop: '30px',
+      paddingTop: '20px',
+      borderTop: '1px solid #334155'
+    },
+    submitButton: {
+      padding: '12px 30px',
+      backgroundColor: '#3b82f6',
+      color: 'white',
+      border: 'none',
+      borderRadius: '8px',
+      cursor: 'pointer',
+      fontSize: '16px',
+      fontWeight: '600',
+      transition: 'background-color 0.2s',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '10px',
+      '&:hover:not(:disabled)': {
+        backgroundColor: '#2563eb'
+      },
+      '&:disabled': {
+        backgroundColor: '#475569',
+        cursor: 'not-allowed'
+      }
+    },
+    secondaryButton: {
+      padding: '12px 30px',
+      backgroundColor: '#475569',
+      color: '#e2e8f0',
+      border: '1px solid #64748b',
+      borderRadius: '8px',
+      cursor: 'pointer',
+      fontSize: '16px',
+      fontWeight: '500',
+      transition: 'all 0.2s',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '10px',
+      '&:hover': {
+        backgroundColor: '#64748b'
+      }
+    },
+    buttonIcon: {
+      fontSize: '18px'
+    },
+    infoText: {
+      color: '#94a3b8',
+      fontSize: '12px',
+      fontStyle: 'italic',
+      marginTop: '4px'
+    },
+    textarea: {
+      minHeight: '80px',
+      resize: 'vertical',
+      padding: '10px 12px',
+      border: '1px solid #475569',
+      borderRadius: '6px',
+      fontSize: '14px',
+      backgroundColor: '#1e293b',
+      color: '#e2e8f0',
+      transition: 'border-color 0.2s',
+      '&:focus': {
+        outline: 'none',
+        borderColor: '#3b82f6',
+        boxShadow: '0 0 0 3px rgba(59, 130, 246, 0.2)'
+      },
+      '&:disabled': {
+        backgroundColor: '#334155',
+        color: '#94a3b8',
+        cursor: 'not-allowed'
+      }
+    }
+  };
+
   return (
-    <div className="product-registration">
-      <div className="product-header">
-        <h2>PRODUCT REGISTRATION</h2>
-        <div className="header-badge">Restaurant Inventory</div>
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <h2 style={styles.title}>
+          <span style={{color: '#3b82f6'}}>📦</span>
+          製品登録 / Product Registration
+        </h2>
+        <p style={styles.subtitle}>Register new products for your inventory management</p>
       </div>
-      
-      <form onSubmit={handleSubmit} className="product-form">
+
+      <form onSubmit={handleSubmit} style={styles.form}>
         {/* Category Section */}
-        <div className="form-section">
-          <div className="section-title">
-            <span className="section-icon">📁</span>
-            CATEGORY INFORMATION
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>
+            <span style={styles.sectionIcon}>📁</span>
+            カテゴリ情報 / Category Information
           </div>
           
-          <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">🏷️</span>
-                MAIN CATEGORY *
+          <div style={styles.formGrid}>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>🏷️</span>
+                メインカテゴリ / Main Category <span style={styles.required}>*</span>
               </label>
               <select 
                 value={formData.mainCategory}
                 onChange={handleCategoryChange}
-                className="form-select"
+                style={styles.select}
                 required
+                disabled={loading}
               >
-                <option value="">SELECT CATEGORY</option>
+                <option value="">カテゴリを選択 / Select Category</option>
                 {categories.map((cat, index) => (
-                  <option key={index} value={cat.name} className={cat.isFood ? 'food-category' : 'nonfood-category'}>
-                    {cat.name} • {cat.isFood ? 'FOOD (8% TAX)' : 'NON-FOOD (10% TAX)'}
+                  <option key={index} value={cat.name}>
+                    {cat.name} • {cat.isFood ? '食品 (税8%)' : '非食品 (税10%)'}
                   </option>
                 ))}
               </select>
               
               <button 
                 type="button" 
-                className="btn-custom"
+                style={{
+                  ...styles.toggleButton,
+                  ...(showNewCategory ? styles.toggleButtonActive : {})
+                }}
                 onClick={() => setShowNewCategory(!showNewCategory)}
+                disabled={loading}
               >
-                {showNewCategory ? '← SELECT EXISTING' : '+ CREATE NEW CATEGORY'}
+                {showNewCategory ? '← 既存カテゴリを選択' : '+ 新規カテゴリ作成'}
               </button>
             </div>
 
             {showNewCategory ? (
-              <div className="form-group">
-                <label className="form-label">
-                  <span className="label-icon">🆕</span>
-                  NEW CATEGORY NAME *
+              <div style={styles.formGroup}>
+                <label style={styles.label}>
+                  <span style={styles.labelIcon}>🆕</span>
+                  新規カテゴリ名 / New Category Name <span style={styles.required}>*</span>
                 </label>
                 <input 
                   type="text" 
                   value={formData.newCategory}
                   onChange={(e) => setFormData({...formData, newCategory: e.target.value})}
-                  className="form-input"
-                  placeholder="ENTER NEW CATEGORY"
+                  style={styles.input}
+                  placeholder="新規カテゴリ名を入力"
                   required={showNewCategory}
+                  disabled={loading}
                 />
-                <div className="tax-toggle">
-                  <div className="toggle-group">
-                    <input 
-                      type="radio" 
-                      id="foodTax"
-                      name="taxType"
-                      checked={formData.isFoodItem}
-                      onChange={() => setFormData({...formData, isFoodItem: true, taxRate: 8})}
-                    />
-                    <label htmlFor="foodTax" className="toggle-label food-toggle">
-                      🍽️ FOOD ITEM • 8% TAX
-                    </label>
-                  </div>
-                  <div className="toggle-group">
-                    <input 
-                      type="radio" 
-                      id="nonFoodTax"
-                      name="taxType"
-                      checked={!formData.isFoodItem}
-                      onChange={() => setFormData({...formData, isFoodItem: false, taxRate: 10})}
-                    />
-                    <label htmlFor="nonFoodTax" className="toggle-label nonfood-toggle">
-                      📦 NON-FOOD • 10% TAX
-                    </label>
-                  </div>
+                <div style={styles.toggleGroup}>
+                  <button 
+                    type="button"
+                    style={{
+                      ...styles.toggleButton,
+                      ...(formData.isFoodItem ? styles.toggleButtonActive : {})
+                    }}
+                    onClick={() => setFormData({...formData, isFoodItem: true, taxRate: 8})}
+                    disabled={loading}
+                  >
+                    🍽️ 食品アイテム • 税8%
+                  </button>
+                  <button 
+                    type="button"
+                    style={{
+                      ...styles.toggleButton,
+                      ...(!formData.isFoodItem ? styles.toggleButtonActive : {})
+                    }}
+                    onClick={() => setFormData({...formData, isFoodItem: false, taxRate: 10})}
+                    disabled={loading}
+                  >
+                    📦 非食品 • 税10%
+                  </button>
                 </div>
               </div>
             ) : (
-              <div className="form-group">
-                <label className="form-label">
-                  <span className="label-icon">🔽</span>
-                  SUB CATEGORY
+              <div style={styles.formGroup}>
+                <label style={styles.label}>
+                  <span style={styles.labelIcon}>🔽</span>
+                  サブカテゴリ / Sub Category
                 </label>
                 <select 
                   value={formData.subCategory}
                   onChange={(e) => setFormData({...formData, subCategory: e.target.value})}
-                  className="form-select"
+                  style={styles.select}
+                  disabled={loading || !formData.mainCategory}
                 >
-                  <option value="">SELECT SUB-CATEGORY</option>
+                  <option value="">サブカテゴリを選択 / Select Sub-Category</option>
                   {subCategories.map((sub, index) => (
                     <option key={index} value={sub}>{sub}</option>
                   ))}
                 </select>
                 <button 
                   type="button" 
-                  className="btn-custom"
+                  style={{
+                    ...styles.toggleButton,
+                    ...(showNewSubCategory ? styles.toggleButtonActive : {})
+                  }}
                   onClick={() => setShowNewSubCategory(!showNewSubCategory)}
+                  disabled={loading || !formData.mainCategory}
                 >
-                  {showNewSubCategory ? '← SELECT EXISTING' : '+ NEW SUB-CATEGORY'}
+                  {showNewSubCategory ? '← 既存を選択' : '+ 新規サブカテゴリ'}
                 </button>
               </div>
             )}
 
             {showNewSubCategory && (
-              <div className="form-group">
-                <label className="form-label">
-                  <span className="label-icon">🆕</span>
-                  NEW SUB-CATEGORY
+              <div style={styles.formGroup}>
+                <label style={styles.label}>
+                  <span style={styles.labelIcon}>🆕</span>
+                  新規サブカテゴリ / New Sub-Category
                 </label>
                 <input 
                   type="text" 
                   value={formData.newSubCategory}
                   onChange={(e) => setFormData({...formData, newSubCategory: e.target.value})}
-                  className="form-input"
-                  placeholder="ENTER NEW SUB-CATEGORY"
+                  style={styles.input}
+                  placeholder="新規サブカテゴリを入力"
+                  disabled={loading}
                 />
               </div>
             )}
@@ -353,287 +673,333 @@ const ProductRegistration = () => {
         </div>
 
         {/* Product Details */}
-        <div className="form-section">
-          <div className="section-title">
-            <span className="section-icon">📝</span>
-            PRODUCT DETAILS
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>
+            <span style={styles.sectionIcon}>📝</span>
+            製品詳細 / Product Details
           </div>
           
-          <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">📛</span>
-                PRODUCT NAME *
+          <div style={styles.formGrid}>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>📛</span>
+                製品名 / Product Name <span style={styles.required}>*</span>
               </label>
               <input 
                 type="text" 
+                name="name"
                 value={formData.name}
-                onChange={(e) => setFormData({...formData, name: e.target.value})}
-                className="form-input"
-                placeholder="e.g., CHICKEN BREAST, BASMATI RICE"
+                onChange={handleInputChange}
+                style={styles.input}
+                placeholder="例: 鶏むね肉、バスマティライス"
                 required
+                disabled={loading}
               />
             </div>
 
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">🏷️</span>
-                PRODUCT CODE
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>🏷️</span>
+                製品コード / Product Code
               </label>
-              <div className="input-group">
+              <div style={styles.inputGroup}>
                 <input 
                   type="text" 
+                  name="sku"
                   value={formData.sku}
-                  onChange={(e) => setFormData({...formData, sku: e.target.value})}
-                  className="form-input"
-                  placeholder="SKU CODE"
+                  onChange={handleInputChange}
+                  style={styles.input}
+                  placeholder="SKUコード"
+                  disabled={loading}
                 />
                 <button 
                   type="button" 
-                  className="btn-generate"
+                  style={styles.toggleButton}
                   onClick={() => setFormData({...formData, sku: generateSKU()})}
+                  disabled={loading}
                 >
-                  GENERATE
+                  生成 / Generate
                 </button>
               </div>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">📦</span>
-                UNIT TYPE *
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>📦</span>
+                単位タイプ / Unit Type
               </label>
-              <div className="form-row">
+              <div style={styles.formGrid}>
                 <select 
+                  name="type"
                   value={formData.type}
-                  onChange={(e) => setFormData({...formData, type: e.target.value})}
-                  className="form-select"
+                  onChange={handleInputChange}
+                  style={styles.select}
+                  disabled={loading}
                 >
-                  <option value="weight">⚖️ BY WEIGHT</option>
-                  <option value="piece">🔢 BY PIECE</option>
-                  <option value="volume">🧴 BY VOLUME</option>
-                  <option value="packet">📦 BY PACKET</option>
+                  <option value="weight">⚖️ 重量単位 / By Weight</option>
+                  <option value="piece">🔢 個数単位 / By Piece</option>
+                  <option value="volume">🧴 容量単位 / By Volume</option>
+                  <option value="packet">📦 パケット単位 / By Packet</option>
                 </select>
                 
                 <select 
+                  name="unit"
                   value={formData.unit}
-                  onChange={(e) => setFormData({...formData, unit: e.target.value})}
-                  className="form-select"
+                  onChange={handleInputChange}
+                  style={styles.select}
+                  disabled={loading}
                 >
                   {formData.type === 'weight' && (
                     <>
-                      <option value="kg">KG (KILOGRAM)</option>
-                      <option value="g">G (GRAM)</option>
-                      <option value="lb">LB (POUND)</option>
+                      <option value="kg">kg (キログラム)</option>
+                      <option value="g">g (グラム)</option>
                     </>
                   )}
                   {formData.type === 'volume' && (
                     <>
-                      <option value="L">L (LITER)</option>
-                      <option value="ml">ML (MILLILITER)</option>
+                      <option value="L">L (リットル)</option>
+                      <option value="ml">ml (ミリリットル)</option>
                     </>
                   )}
                   {formData.type === 'piece' && (
                     <>
-                      <option value="pc">PC (PIECE)</option>
-                      <option value="dozen">DOZEN</option>
-                      <option value="pack">PACK</option>
+                      <option value="pc">pc (個)</option>
+                      <option value="dozen">ダース / Dozen</option>
+                      <option value="pack">パック / Pack</option>
                     </>
                   )}
                   {formData.type === 'packet' && (
                     <>
-                      <option value="packet">PACKET</option>
-                      <option value="box">BOX</option>
-                      <option value="case">CASE</option>
+                      <option value="packet">パケット / Packet</option>
+                      <option value="box">箱 / Box</option>
+                      <option value="case">ケース / Case</option>
                     </>
                   )}
                 </select>
               </div>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">📏</span>
-                UNIT SIZE
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>📏</span>
+                単位サイズ / Unit Size
               </label>
               <input 
                 type="text" 
+                name="unitSize"
                 value={formData.unitSize}
-                onChange={(e) => setFormData({...formData, unitSize: e.target.value})}
-                className="form-input"
-                placeholder="e.g., 500G, 1KG, 1L, DOZEN"
+                onChange={handleInputChange}
+                style={styles.input}
+                placeholder="例: 500g, 1kg, 1L, ダース"
+                disabled={loading}
               />
             </div>
           </div>
+
+          <div style={styles.formGroup}>
+            <label style={styles.label}>
+              <span style={styles.labelIcon}>📄</span>
+              説明 / Description
+            </label>
+            <textarea 
+              name="description"
+              value={formData.description}
+              onChange={handleInputChange}
+              style={styles.textarea}
+              placeholder="製品の説明..."
+              disabled={loading}
+              rows="3"
+            />
+          </div>
         </div>
 
-        {/* Pricing Section */}
-        <div className="form-section">
-          <div className="section-title">
-            <span className="section-icon">💰</span>
-            PRICING & TAX
+        {/* Pricing & Tax */}
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>
+            <span style={styles.sectionIcon}>💰</span>
+            価格と税金 / Pricing & Tax
           </div>
           
-          <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">🏷️</span>
-                PURCHASE PRICE *
+          <div style={styles.formGrid}>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>🏷️</span>
+                仕入価格 / Purchase Price <span style={styles.required}>*</span>
               </label>
-              <div className="price-input">
-                <span className="currency">₹</span>
+              <div style={styles.inputGroup}>
+                <span style={styles.currencySymbol}>¥</span>
                 <input 
                   type="number" 
-                  step="0.01"
+                  name="price"
+                  step="1"
+                  min="0"
                   value={formData.price}
-                  onChange={(e) => setFormData({...formData, price: e.target.value})}
-                  className="form-input"
-                  placeholder="0.00"
+                  onChange={handleInputChange}
+                  style={styles.input}
+                  placeholder="0"
                   required
+                  disabled={loading}
                 />
               </div>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">💲</span>
-                SELLING PRICE *
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>💲</span>
+                販売価格 / Selling Price <span style={styles.required}>*</span>
               </label>
-              <div className="price-input">
-                <span className="currency">₹</span>
+              <div style={styles.inputGroup}>
+                <span style={styles.currencySymbol}>¥</span>
                 <input 
                   type="number" 
-                  step="0.01"
+                  name="sellPrice"
+                  step="1"
+                  min="0"
                   value={formData.sellPrice}
-                  onChange={(e) => setFormData({...formData, sellPrice: e.target.value})}
-                  className="form-input"
-                  placeholder="0.00"
+                  onChange={handleInputChange}
+                  style={styles.input}
+                  placeholder="0"
                   required
+                  disabled={loading}
                 />
               </div>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">📊</span>
-                TAX RATE *
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>📊</span>
+                税率 / Tax Rate <span style={styles.required}>*</span>
               </label>
-              <div className="tax-display">
-                <select 
-                  value={formData.taxRate}
-                  onChange={(e) => setFormData({...formData, taxRate: parseFloat(e.target.value)})}
-                  className="tax-select"
-                >
-                  <option value="0">0% (TAX FREE)</option>
-                  <option value="5">5% (SPECIAL)</option>
-                  <option value="8">8% (FOOD ITEMS)</option>
-                  <option value="10">10% (NON-FOOD)</option>
-                  <option value="12">12% (STANDARD)</option>
-                  <option value="18">18% (PREMIUM)</option>
-                </select>
-                <div className="tax-breakdown">
-                  <div className="tax-item">
-                    <span>TAX AMOUNT:</span>
-                    <span className="tax-value">
-                      ₹{(formData.sellPrice * formData.taxRate / 100).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="tax-item">
-                    <span>TOTAL PRICE:</span>
-                    <span className="total-value">
-                      ₹{(parseFloat(formData.sellPrice || 0) + (formData.sellPrice * formData.taxRate / 100)).toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-              </div>
+              <select 
+                name="taxRate"
+                value={formData.taxRate}
+                onChange={handleInputChange}
+                style={styles.select}
+                required
+                disabled={loading}
+              >
+                <option value="0">0% (非課税 / Tax Free)</option>
+                <option value="5">5% (特別 / Special)</option>
+                <option value="8">8% (食品 / Food Items)</option>
+                <option value="10">10% (非食品 / Non-Food)</option>
+                <option value="12">12% (標準 / Standard)</option>
+                <option value="18">18% (プレミアム / Premium)</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={styles.taxDisplay}>
+            <div style={styles.taxRow}>
+              <span style={styles.taxLabel}>販売価格 / Selling Price:</span>
+              <span style={styles.taxValue}>{formatYen(formData.sellPrice)}</span>
+            </div>
+            <div style={styles.taxRow}>
+              <span style={styles.taxLabel}>税金額 ({formData.taxRate}%):</span>
+              <span style={styles.taxValue}>{formatYen(formData.sellPrice * formData.taxRate / 100)}</span>
+            </div>
+            <div style={{...styles.taxRow, borderBottom: 'none'}}>
+              <span style={styles.taxLabel}>合計金額 / Total Price:</span>
+              <span style={styles.totalValue}>
+                {formatYen(parseFloat(formData.sellPrice || 0) + (formData.sellPrice * formData.taxRate / 100))}
+              </span>
             </div>
           </div>
         </div>
 
         {/* Stock Management */}
-        <div className="form-section">
-          <div className="section-title">
-            <span className="section-icon">📊</span>
-            STOCK MANAGEMENT
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>
+            <span style={styles.sectionIcon}>📊</span>
+            在庫管理 / Stock Management
           </div>
           
-          <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">📦</span>
-                CURRENT STOCK *
+          <div style={styles.formGrid}>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>📦</span>
+                現在の在庫 / Current Stock
               </label>
               <input 
                 type="number" 
+                name="currentStock"
                 step="0.01"
+                min="0"
                 value={formData.currentStock}
-                onChange={(e) => setFormData({...formData, currentStock: e.target.value})}
-                className="form-input"
+                onChange={handleInputChange}
+                style={styles.input}
                 placeholder="0"
-                required
+                disabled={loading}
               />
             </div>
 
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">⚠️</span>
-                STOCK ALERT LIMIT *
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>⚠️</span>
+                在庫アラート / Stock Alert Limit
               </label>
               <input 
                 type="number" 
+                name="stockLowerLimit"
                 step="0.01"
+                min="0"
                 value={formData.stockLowerLimit}
-                onChange={(e) => setFormData({...formData, stockLowerLimit: e.target.value})}
-                className="form-input"
-                placeholder="ALERT WHEN BELOW"
-                required
+                onChange={handleInputChange}
+                style={styles.input}
+                placeholder="アラート設定値"
+                disabled={loading}
               />
             </div>
 
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">📦</span>
-                MINIMUM ORDER LOT
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>📦</span>
+                最低発注ロット / Minimum Order Lot
               </label>
               <input 
                 type="number" 
+                name="minimumOrderLot"
                 step="0.01"
+                min="0"
                 value={formData.minimumOrderLot}
-                onChange={(e) => setFormData({...formData, minimumOrderLot: e.target.value})}
-                className="form-input"
-                placeholder="SUPPLIER MINIMUM"
+                onChange={handleInputChange}
+                style={styles.input}
+                placeholder="仕入先最低数量"
+                disabled={loading}
               />
             </div>
 
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">📅</span>
-                NEXT AVAILABLE DATE
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>📅</span>
+                次回入荷予定日 / Next Available Date
               </label>
               <input 
                 type="date" 
+                name="nextAvailableDate"
                 value={formData.nextAvailableDate}
-                onChange={(e) => setFormData({...formData, nextAvailableDate: e.target.value})}
-                className="form-input"
+                onChange={handleInputChange}
+                style={styles.input}
+                disabled={loading}
               />
             </div>
           </div>
         </div>
 
         {/* Supplier & Storage */}
-        <div className="form-section">
-          <div className="section-title">
-            <span className="section-icon">🚚</span>
-            SUPPLIER & STORAGE
+        <div style={styles.section}>
+          <div style={styles.sectionTitle}>
+            <span style={styles.sectionIcon}>🚚</span>
+            仕入先と保管 / Supplier & Storage
           </div>
           
-          <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">🏢</span>
-                SUPPLIER *
+          <div style={styles.formGrid}>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>🏢</span>
+                仕入先 / Supplier <span style={styles.required}>*</span>
               </label>
               <select 
+                name="supplierId"
                 value={formData.supplierId}
                 onChange={(e) => {
                   const selected = suppliers.find(s => s.id === e.target.value);
@@ -643,110 +1009,124 @@ const ProductRegistration = () => {
                     supplierName: selected ? selected.name : ''
                   });
                 }}
-                className="form-select"
+                style={styles.select}
                 required
+                disabled={loading || suppliers.length === 0}
               >
-                <option value="">SELECT SUPPLIER</option>
+                <option value="">仕入先を選択 / Select Supplier</option>
                 {suppliers.map(supplier => (
                   <option key={supplier.id} value={supplier.id}>
-                    🏢 {supplier.name} • 📞 {supplier.contact}
+                    {supplier.name} • {supplier.mobileNumber || supplier.landlineNumber}
                   </option>
                 ))}
               </select>
+              {suppliers.length === 0 && (
+                <div style={styles.infoText}>仕入先が見つかりません。最初に仕入先を追加してください。</div>
+              )}
             </div>
 
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">❄️</span>
-                STORAGE TYPE
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>❄️</span>
+                保管タイプ / Storage Type
               </label>
               <select 
+                name="storageType"
                 value={formData.storageType}
-                onChange={(e) => setFormData({...formData, storageType: e.target.value})}
-                className="form-select"
+                onChange={handleInputChange}
+                style={styles.select}
+                disabled={loading}
               >
-                <option value="normal">🌡️ ROOM TEMPERATURE</option>
-                <option value="refrigerated">❄️ REFRIGERATED</option>
-                <option value="frozen">🧊 FROZEN</option>
-                <option value="dry">☀️ DRY STORAGE</option>
+                <option value="normal">🌡️ 常温 / Room Temperature</option>
+                <option value="refrigerated">❄️ 冷蔵 / Refrigerated</option>
+                <option value="frozen">🧊 冷凍 / Frozen</option>
+                <option value="dry">☀️ 乾燥保管 / Dry Storage</option>
               </select>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">🏷️</span>
-                HSN CODE
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>🏷️</span>
+                HSNコード / HSN Code
               </label>
               <input 
                 type="text" 
+                name="hsnCode"
                 value={formData.hsnCode}
-                onChange={(e) => setFormData({...formData, hsnCode: e.target.value})}
-                className="form-input"
-                placeholder="HSN CODE FOR GST"
+                onChange={handleInputChange}
+                style={styles.input}
+                placeholder="税務用HSNコード"
+                disabled={loading}
               />
             </div>
 
-            <div className="form-group">
-              <label className="form-label">
-                <span className="label-icon">📱</span>
-                BARCODE
+            <div style={styles.formGroup}>
+              <label style={styles.label}>
+                <span style={styles.labelIcon}>📱</span>
+                バーコード / Barcode
               </label>
               <input 
                 type="text" 
+                name="barcode"
                 value={formData.barcode}
-                onChange={(e) => setFormData({...formData, barcode: e.target.value})}
-                className="form-input"
-                placeholder="SCAN OR ENTER BARCODE"
+                onChange={handleInputChange}
+                style={styles.input}
+                placeholder="スキャンまたは入力"
+                disabled={loading}
               />
             </div>
           </div>
         </div>
 
         {/* Form Actions */}
-        <div className="form-actions">
-          <button type="submit" className="btn-submit">
-            <span className="btn-icon">✅</span>
-            REGISTER PRODUCT
+        <div style={styles.actionButtons}>
+          <button 
+            type="submit" 
+            style={styles.submitButton}
+            disabled={loading}
+          >
+            <span style={styles.buttonIcon}>✅</span>
+            {loading ? '登録中...' : '製品を登録'}
           </button>
-          <button type="button" className="btn-draft" onClick={() => {
-            setFormData({...formData, isActive: false});
-            handleSubmit(new Event('submit'));
-          }}>
-            <span className="btn-icon">💾</span>
-            SAVE AS DRAFT
-          </button>
-          <button type="button" className="btn-clear" onClick={() => {
-            setFormData({
-              name: '',
-              mainCategory: '',
-              subCategory: '',
-              newCategory: '',
-              newSubCategory: '',
-              type: 'weight',
-              weightPerUnit: '',
-              unit: 'kg',
-              price: '',
-              supplierId: '',
-              supplierName: '',
-              minimumOrderLot: '',
-              stockLowerLimit: '',
-              sellPrice: '',
-              taxRate: 8,
-              currentStock: 0,
-              nextAvailableDate: '',
-              isActive: true,
-              storageType: 'normal',
-              unitSize: '',
-              isFoodItem: true,
-              barcode: '',
-              sku: '',
-              hsnCode: ''
-            });
-            setShowNewCategory(false);
-            setShowNewSubCategory(false);
-          }}>
-            <span className="btn-icon">🗑️</span>
-            CLEAR FORM
+          
+          <button 
+            type="button" 
+            style={styles.secondaryButton}
+            onClick={() => {
+              setFormData({
+                name: '',
+                mainCategory: '',
+                subCategory: '',
+                newCategory: '',
+                newSubCategory: '',
+                type: 'weight',
+                weightPerUnit: '',
+                unit: 'kg',
+                price: '',
+                supplierId: '',
+                supplierName: '',
+                minimumOrderLot: '',
+                stockLowerLimit: '',
+                sellPrice: '',
+                taxRate: 8,
+                currentStock: 0,
+                nextAvailableDate: '',
+                isActive: true,
+                storageType: 'normal',
+                unitSize: '',
+                isFoodItem: true,
+                barcode: '',
+                sku: '',
+                hsnCode: '',
+                description: ''
+              });
+              setShowNewCategory(false);
+              setShowNewSubCategory(false);
+            }}
+            disabled={loading}
+          >
+            <span style={styles.buttonIcon}>🗑️</span>
+            フォームをクリア
           </button>
         </div>
       </form>
