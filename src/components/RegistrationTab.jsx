@@ -347,7 +347,7 @@ const RegistrationTab = ({ currentUser, company, loadUsersData, logActivity, def
           createdById: currentUser?.uid,
           createdByRole: 'operator',
           status: 'active',
-          current_fy: company.financialYear || '2026_2026',
+          fyId: company.financialYear || '2026_2026',
           companyName: company.name || 'Unknown Company',
           // Add timestamp on server side
         }

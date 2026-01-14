@@ -24,13 +24,13 @@ const YearMigration = () => {
   const [progress, setProgress] = useState(0);
 
   // Japanese FY starts April 1
-  const getCurrentFY = () => {
+  const getfyId = () => {
     const today = new Date();
     const year = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
     return year;
   };
 
-  const getNextFY = () => getCurrentFY() + 1;
+  const getNextFY = () => getfyId() + 1;
 
   useEffect(() => {
     const checkAccess = async () => {
@@ -47,9 +47,9 @@ const YearMigration = () => {
         return;
       }
 
-      const currentFY = getCurrentFY();
+      const fyId = getfyId();
       const nextFY = getNextFY();
-      setCurrentYear(currentFY);
+      setCurrentYear(fyId);
       setNextYear(nextFY);
 
       // Check if next year collection exists

@@ -27,6 +27,24 @@ import InvoicePrinting from './InvoicePrinting';
 
 // Import Category Management
 import CategoryManagement from './CategoryManagement';
+// Add this after all imports in Operator.jsx
+console.log('=== OPERATOR COMPONENT IMPORT DEBUG ===');
+try {
+  console.log('✅ Operator component loaded');
+  console.log('DeliveryTrackingMap:', typeof DeliveryTrackingMap);
+  console.log('DeliveryManagement:', typeof DeliveryManagement);
+  console.log('DriverAssignments:', typeof DriverAssignments);
+  console.log('SalesManagement:', typeof SalesManagement);
+  console.log('AccountReceivableManagement:', typeof AccountReceivableManagement);
+  console.log('PurchaseManagement:', typeof PurchaseManagement);
+  console.log('AccountPayableManagement:', typeof AccountPayableManagement);
+  console.log('InventoryManagement:', typeof InventoryManagement);
+  console.log('LedgerTab:', typeof LedgerTab);
+  console.log('InvoicePrinting:', typeof InvoicePrinting);
+  console.log('CategoryManagement:', typeof CategoryManagement);
+} catch (error) {
+  console.error('❌ Error checking imports:', error);
+}
 
 // CSS Styles (EXACTLY THE SAME)
 const styles = {
@@ -344,7 +362,7 @@ const Operator = ({ selectedCompany, currentUser, companyLoading }) => {
         
         const userData = userDoc.data();
         const companyId = userData.companyId;
-        const userFY = userData.current_fy;
+        const userFY = userData.fyId;
         
         if (!companyId) {
           console.error('No company ID found');

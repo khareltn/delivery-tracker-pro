@@ -241,7 +241,7 @@ const findUserByMobileNumber = async (mobileNumber) => {
 };
 
 const registerUserWithMobile = async (userData) => {
-  const { mobileNumber, password, name, role, companyId, current_fy, ...additionalData } = userData;
+  const { mobileNumber, password, name, role, companyId, fyId, ...additionalData } = userData;
   
   try {
     // Create email from mobile number for Firebase Auth
@@ -259,7 +259,7 @@ const registerUserWithMobile = async (userData) => {
       mobileNumber: mobileNumber,
       email: authEmail,
       companyId: companyId,
-      current_fy: current_fy,
+      fyId: fyId,
       status: 'active',
       createdAt: serverTimestamp(),
       ...additionalData

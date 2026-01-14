@@ -58,7 +58,7 @@ const Driver = ({ styles }) => {
         
         // Load company info in background
         if (driverData.companyId) {
-          loadCompanyInfo(driverData.companyId, driverData.current_fy);
+          loadCompanyInfo(driverData.companyId, driverData.fyId);
         }
       }
 
@@ -87,7 +87,7 @@ const Driver = ({ styles }) => {
 
       // Load company info
       if (userData.companyId) {
-        loadCompanyInfo(userData.companyId, userData.current_fy);
+        loadCompanyInfo(userData.companyId, userData.fyId);
       }
 
       // Load deliveries - No composite index needed
@@ -140,7 +140,7 @@ const Driver = ({ styles }) => {
   }, [navigate]);
 
   // Helper function to load company info
-  const loadCompanyInfo = async (companyId, current_fy) => {
+  const loadCompanyInfo = async (companyId, fyId) => {
     try {
       console.log('🏢 Loading company info...');
       
@@ -157,10 +157,10 @@ const Driver = ({ styles }) => {
         return;
       }
       
-      if (current_fy) {
+      if (fyId) {
         try {
           const fyCompQuery = query(
-            collection(db, 'financial_years', current_fy, 'companies'),
+            collection(db, 'financial_years', fyId, 'companies'),
             where('companyId', '==', companyId)
           );
           const fyCompSnap = await getDocs(fyCompQuery);

@@ -17,17 +17,28 @@ const FinancialYearSetup = ({ onComplete }) => {
     try {
       // Create Financial Year document
       await setDoc(doc(db, 'financial_years', fyName), {
-        startDate: start,
-        endDate: end,
-        createdBy: auth.currentUser.uid,
-        createdAt: new Date(),
-        status: 'active'
-      });
+      fyId: fyName,
+      startDate: start,
+      endDate: end,
+      createdBy: auth.currentUser.uid,
+      createdAt: new Date(),
+      status: 'active'
+    });
 
-      // Save current FY in user settings
-      await setDoc(doc(db, 'user_settings', auth.currentUser.uid), { 
-        currentFY: fyName 
-      }, { merge: true });
+
+      // Save current FY in user settings changed //
+      //await setDoc(doc(db, 'user_settings', auth.currentUser.uid), { 
+        //fyId: fyName 
+      //}, { merge: true });
+      await setDoc(
+       doc(db, 'users', auth.currentUser.uid),
+      {
+       current_fy: fyName,
+       updatedAt: new Date()
+       },
+        { merge: true }
+);
+
 
       toast.success(`Financial Year ${fyName} created successfully!`);
       

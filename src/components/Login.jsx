@@ -1,9 +1,9 @@
 // src/components/Login.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { getDoc, doc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
 import { toast } from 'react-toastify';
 
 const Login = () => {
@@ -13,64 +13,36 @@ const Login = () => {
   const [mobileNumber, setMobileNumber] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  // Helper function to find user by mobile number - FIXED VERSION
+  // Helper function to find user by mobile number (kept for debugging)
   const findUserByMobileNumber = async (mobile) => {
     try {
       console.log('🔍 [MOBILE] Searching for user by mobile:', mobile);
       
-      // Clean the mobile number (remove non-digits)
       const cleanMobile = mobile.replace(/\D/g, '');
       console.log('🔍 [MOBILE] Cleaned mobile:', cleanMobile);
       
-      // Try different mobile number formats
       const mobileVariations = [
         cleanMobile,                          // 09012345678
         `+81${cleanMobile.substring(1)}`,    // +819012345678
         `81${cleanMobile.substring(1)}`,     // 819012345678
-        `0${cleanMobile}`,                   // 009012345678 (if missing leading 0)
-        cleanMobile.substring(1),            // 9012345678 (without leading 0)
+        `0${cleanMobile}`,                   // 009012345678
+        cleanMobile.substring(1),            // 9012345678
       ];
       
       console.log('📱 [MOBILE] Trying variations:', mobileVariations);
       
-      // Try each mobile number variation
       for (const mobileVar of mobileVariations) {
         console.log(`🔍 [MOBILE] Trying variation: "${mobileVar}"`);
         
-        // Try different query combinations
         const queries = [
-          // Query 1: Just by mobile number
-          query(
-            collection(db, 'users'),
-            where('mobileNumber', '==', mobileVar)
-          ),
-          // Query 2: Mobile with role driver
-          query(
-            collection(db, 'users'),
-            where('mobileNumber', '==', mobileVar),
-            where('role', '==', 'driver')
-          ),
-          // Query 3: Mobile with status active
-          query(
-            collection(db, 'users'),
-            where('mobileNumber', '==', mobileVar),
-            where('status', '==', 'active')
-          ),
-          // Query 4: Try phone field (alternative name)
-          query(
-            collection(db, 'users'),
-            where('phone', '==', mobileVar)
-          ),
-          // Query 5: Try contactNumber field
-          query(
-            collection(db, 'users'),
-            where('contactNumber', '==', mobileVar)
-          )
+          query(collection(db, 'users'), where('mobileNumber', '==', mobileVar)),
+          query(collection(db, 'users'), where('phone', '==', mobileVar)),
+          query(collection(db, 'users'), where('contactNumber', '==', mobileVar)),
         ];
         
         for (let i = 0; i < queries.length; i++) {
-          console.log(`🔍 [MOBILE] Trying query ${i + 1} with "${mobileVar}"`);
           try {
             const querySnapshot = await getDocs(queries[i]);
             console.log(`📊 [MOBILE] Query ${i + 1} found ${querySnapshot.size} users`);
@@ -79,8 +51,6 @@ const Login = () => {
               const userDoc = querySnapshot.docs[0];
               const userData = userDoc.data();
               console.log(`✅ [MOBILE] USER FOUND!`, userData);
-              console.log(`✅ [MOBILE] Mobile field value: "${userData.mobileNumber || userData.phone || userData.contactNumber}"`);
-              
               return {
                 email: userData.email,
                 userData: { ...userData, id: userDoc.id }
@@ -91,21 +61,6 @@ const Login = () => {
           }
         }
       }
-      
-      // If still not found, list ALL users to debug
-      console.log('🔄 [MOBILE] Listing ALL users to check mobile fields...');
-      const allUsersQuery = query(collection(db, 'users'));
-      const allUsers = await getDocs(allUsersQuery);
-      console.log('📋 [MOBILE] ALL USERS IN FIRESTORE:');
-      allUsers.forEach(doc => {
-        const data = doc.data();
-        console.log(`- ID: ${doc.id}`);
-        console.log(`  Email: ${data.email}`);
-        console.log(`  Mobile: ${data.mobileNumber || data.phone || data.contactNumber || 'NO MOBILE FIELD'}`);
-        console.log(`  Role: ${data.role}`);
-        console.log(`  Status: ${data.status || 'NO STATUS'}`);
-        console.log('---');
-      });
       
       console.log('❌ [MOBILE] No user found with any mobile variation');
       return null;
@@ -120,12 +75,9 @@ const Login = () => {
     try {
       console.log('🔍 [EMAIL] Searching for user by email:', email);
       
-      const usersQuery = query(
-        collection(db, 'users'),
-        where('email', '==', email)
-      );
-      
+      const usersQuery = query(collection(db, 'users'), where('email', '==', email));
       const querySnapshot = await getDocs(usersQuery);
+      
       console.log(`📊 [EMAIL] Found ${querySnapshot.size} users`);
       
       if (!querySnapshot.empty) {
@@ -146,16 +98,21 @@ const Login = () => {
     }
   };
 
+  // Main login handler - FIXED VERSION
   const handleSubmit = async (e) => {
     e.preventDefault();
     console.log('🚀 Login attempt. Type:', loginType);
     
-    setLoading(true);
+    if (loading) return;
     
+    setLoading(true);
+    setError('');
+
     try {
       let userEmail = '';
       let userData = null;
 
+      // Step 1: Find user details
       if (loginType === 'mobile') {
         if (!mobileNumber || !password) {
           toast.error('Mobile number and password required');
@@ -163,13 +120,10 @@ const Login = () => {
           return;
         }
         
-        const cleanMobile = mobileNumber.replace(/\D/g, '');
-        console.log('📱 Processing mobile login for:', cleanMobile);
-        
-        const foundUser = await findUserByMobileNumber(cleanMobile);
+        const foundUser = await findUserByMobileNumber(mobileNumber);
         
         if (!foundUser) {
-          toast.error('No user found with this mobile number. Check console for details.');
+          toast.error('No user found with this mobile number');
           setLoading(false);
           return;
         }
@@ -194,35 +148,39 @@ const Login = () => {
         
         userData = foundUser.userData;
         userEmail = userData.email;
+        console.log('✅ Email login - Found user email:', userEmail);
       }
 
+      // Step 2: Firebase Auth with email/password
       console.log('🔑 Attempting Firebase auth with:', userEmail);
       
-      // Authenticate with Firebase
       const userCredential = await signInWithEmailAndPassword(auth, userEmail, password);
       const user = userCredential.user;
       console.log('✅ Firebase auth successful! UID:', user.uid);
 
-      // Store user data
-      localStorage.setItem('userData', JSON.stringify({
+      // Step 3: Store user data in localStorage
+      const userInfo = {
         id: userData.id,
-        uid: userData.uid || user.uid,
-        name: userData.name,
+        uid: user.uid,
+        name: userData.name || userData.fullName || userEmail,
         email: userData.email,
         mobileNumber: userData.mobileNumber,
         role: userData.role || 'driver',
         companyId: userData.companyId,
         companyName: userData.companyName,
-        ...(userData.role === 'driver' && {
-          vehicleNumber: userData.vehicleNumber,
-          licenseNumber: userData.licenseNumber
-        })
-      }));
+        status: userData.status || 'active'
+      };
 
-      toast.success(`Welcome ${userData.name || userEmail}!`);
+      localStorage.setItem('userData', JSON.stringify(userInfo));
+      console.log('💾 User data saved to localStorage:', userInfo);
+
+      // Step 4: Success toast
+      toast.success(`Welcome back, ${userInfo.name}!`);
       
-      // Redirect
-      const userRole = userData.role || 'driver';
+      // Step 5: Role-based redirect
+      const userRole = userInfo.role;
+      console.log('🎯 Redirecting based on role:', userRole);
+      
       switch (userRole) {
         case 'admin':
           navigate('/management', { replace: true });
@@ -234,27 +192,52 @@ const Login = () => {
           navigate('/driver-dashboard', { replace: true });
           break;
         default:
+          // Fallback for unknown roles
+          toast.warning('Unknown role, redirecting to dashboard');
           navigate('/dashboard', { replace: true });
       }
 
     } catch (err) {
-      console.error('❌ Login error:', err);
+      console.error('❌ Login error:', err.code, err.message);
       
-      if (err.code === 'auth/invalid-credential') {
-        toast.error('Invalid credentials');
-      } else if (err.code === 'auth/user-not-found') {
-        toast.error('User not in Firebase Authentication');
-      } else if (err.code === 'auth/wrong-password') {
-        toast.error('Wrong password');
-      } else {
-        toast.error(`Login failed: ${err.message}`);
+      let errorMessage = 'Login failed. Please try again.';
+      
+      switch (err.code) {
+        case 'auth/invalid-credential':
+          errorMessage = 'Invalid email or password';
+          break;
+        case 'auth/user-not-found':
+          errorMessage = 'No user found with this email';
+          break;
+        case 'auth/wrong-password':
+          errorMessage = 'Wrong password';
+          break;
+        case 'auth/too-many-requests':
+          errorMessage = 'Too many failed attempts. Please try again later.';
+          break;
+        case 'auth/network-request-failed':
+          errorMessage = 'Network error. Please check your connection.';
+          break;
+        case 'auth/operation-not-allowed':
+          errorMessage = 'Email/password authentication is disabled.';
+          break;
+        default:
+          errorMessage = err.message || 'Unknown error occurred';
+      }
+      
+      setError(errorMessage);
+      toast.error(errorMessage);
+      
+      // Optional: Sign out if auth failed
+      if (auth.currentUser) {
+        await signOut(auth);
       }
     } finally {
       setLoading(false);
     }
   };
 
-  // Clear form fields when switching
+  // Clear form when switching login type
   useEffect(() => {
     if (loginType === 'mobile') {
       setEmail('');
@@ -262,6 +245,14 @@ const Login = () => {
       setMobileNumber('');
     }
   }, [loginType]);
+
+  // Auto-clear error after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(''), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   return (
     <div style={{ 
@@ -278,8 +269,24 @@ const Login = () => {
         borderRadius: '1rem', 
         width: '100%', 
         maxWidth: '400px', 
-        boxShadow: '0 15px 35px rgba(0,0,0,0.3)'
+        boxShadow: '0 15px 35px rgba(0,0,0,0.3)',
+        position: 'relative'
       }}>
+        {/* Error banner */}
+        {error && (
+          <div style={{
+            background: '#fee2e2',
+            color: '#dc2626',
+            padding: '0.75rem',
+            borderRadius: '0.5rem',
+            marginBottom: '1rem',
+            border: '1px solid #fecaca',
+            fontSize: '0.875rem'
+          }}>
+            ⚠️ {error}
+          </div>
+        )}
+
         <h1 style={{ 
           textAlign: 'center', 
           fontSize: '2rem', 
@@ -292,16 +299,17 @@ const Login = () => {
         
         <p style={{
           textAlign: 'center',
-          color: loginType === 'mobile' ? '#dc2626' : '#6b7280',
+          color: '#6b7280',
           marginBottom: '1.5rem',
-          fontSize: '0.9rem',
-          fontWeight: loginType === 'mobile' ? 'bold' : 'normal'
+          fontSize: '0.9rem'
         }}>
           {loginType === 'mobile' 
-            ? '⚠️ DEBUG: Mobile login - Check browser console' 
-            : 'Login with email or mobile'}
+            ? 'Mobile Login (Debug Mode)' 
+            : 'Sign in to your account'
+          }
         </p>
         
+        {/* Login Type Toggle */}
         <div style={{ 
           display: 'flex', 
           marginBottom: '1.5rem', 
@@ -312,65 +320,70 @@ const Login = () => {
           <button
             type="button"
             onClick={() => setLoginType('mobile')}
+            disabled={loading}
             style={{
               flex: 1,
               padding: '0.75rem',
               background: loginType === 'mobile' ? '#dc2626' : 'white',
               color: loginType === 'mobile' ? 'white' : '#6b7280',
               border: 'none',
-              cursor: 'pointer',
-              fontWeight: '500'
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontWeight: '500',
+              opacity: loading ? 0.7 : 1
             }}
           >
-            📱 Mobile (Debug)
+            📱 Mobile
           </button>
           <button
             type="button"
             onClick={() => setLoginType('email')}
+            disabled={loading}
             style={{
               flex: 1,
               padding: '0.75rem',
               background: loginType === 'email' ? '#3b82f6' : 'white',
               color: loginType === 'email' ? 'white' : '#6b7280',
               border: 'none',
-              cursor: 'pointer',
-              fontWeight: '500'
+              cursor: loading ? 'not-allowed' : 'pointer',
+              fontWeight: '500',
+              opacity: loading ? 0.7 : 1
             }}
           >
             ✉️ Email
           </button>
         </div>
         
+        {/* Login Form */}
         <form onSubmit={handleSubmit}>
           {loginType === 'mobile' ? (
-            <div>
+            <>
               <input
                 type="tel"
-                placeholder="Try: 09012345678 or +819012345678"
+                placeholder="Mobile Number (e.g., 09012345678)"
                 value={mobileNumber}
                 onChange={e => setMobileNumber(e.target.value)}
                 style={{ 
                   width: '100%', 
                   padding: '0.875rem', 
-                  marginBottom: '0.5rem', 
+                  marginBottom: '1rem', 
                   borderRadius: '0.5rem', 
-                  border: '1px solid #dc2626', 
+                  border: '1px solid #d1d5db', 
                   fontSize: '1rem',
                   boxSizing: 'border-box'
                 }}
                 required
                 disabled={loading}
               />
-              <div style={{ 
+              <small style={{ 
+                color: '#6b7280', 
                 fontSize: '0.75rem', 
-                color: '#dc2626', 
-                marginBottom: '1rem',
-                textAlign: 'center',
-                fontStyle: 'italic'
+                display: 'block', 
+                marginBottom: '0.5rem',
+                textAlign: 'center'
               }}>
-                Open browser console (F12) to see debug info
-              </div>
-            </div>
+                Format: 09012345678 or +819012345678
+              </small>
+            </>
           ) : (
             <input
               type="email"
@@ -382,7 +395,7 @@ const Login = () => {
                 padding: '0.875rem', 
                 marginBottom: '1rem', 
                 borderRadius: '0.5rem', 
-                border: '1px solid #ccc', 
+                border: '1px solid #d1d5db', 
                 fontSize: '1rem',
                 boxSizing: 'border-box'
               }}
@@ -401,7 +414,7 @@ const Login = () => {
               padding: '0.875rem', 
               marginBottom: '1.5rem', 
               borderRadius: '0.5rem', 
-              border: '1px solid #ccc', 
+              border: '1px solid #d1d5db', 
               fontSize: '1rem',
               boxSizing: 'border-box'
             }}
@@ -411,7 +424,7 @@ const Login = () => {
           
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || (!email && !mobileNumber) || !password}
             style={{
               width: '100%',
               padding: '1rem',
@@ -421,32 +434,75 @@ const Login = () => {
               borderRadius: '0.5rem',
               fontWeight: 'bold',
               fontSize: '1.1rem',
-              cursor: loading ? 'not-allowed' : 'pointer'
+              cursor: loading ? 'not-allowed' : 'pointer',
+              opacity: loading ? 0.7 : 1
             }}
           >
-            {loading ? 'Logging in...' : (loginType === 'mobile' ? 'Test Mobile Login' : 'Login')}
+            {loading ? (
+              <>
+                <span style={{ marginRight: '0.5rem' }}>⏳</span>
+                Logging in...
+              </>
+            ) : (
+              loginType === 'mobile' ? 'Login with Mobile' : 'Login'
+            )}
           </button>
         </form>
 
-        <div style={{
-          marginTop: '1.5rem',
-          padding: '1rem',
-          background: loginType === 'mobile' ? '#fee2e2' : '#f3f4f6',
-          borderRadius: '0.5rem',
-          fontSize: '12px',
-          color: loginType === 'mobile' ? '#dc2626' : '#6b7280',
-          textAlign: 'center'
+        {/* Debug info for mobile login */}
+        {loginType === 'mobile' && (
+          <div style={{
+            marginTop: '1rem',
+            padding: '0.75rem',
+            background: '#f3f4f6',
+            borderRadius: '0.5rem',
+            fontSize: '0.75rem',
+            color: '#6b7280',
+            textAlign: 'center',
+            border: '1px solid #e5e7eb'
+          }}>
+            <strong>🔧 Debug Mode:</strong> Open browser console (F12) to see detailed logs
+          </div>
+        )}
+
+        {/* Links */}
+        <div style={{ 
+          marginTop: '1.5rem', 
+          textAlign: 'center', 
+          fontSize: '0.875rem' 
         }}>
-          {loginType === 'mobile' ? (
-            <>
-              <p><strong>🔧 MOBILE LOGIN DEBUG MODE</strong></p>
-              <p>1. Open browser console (F12)</p>
-              <p>2. Check what mobile numbers are in Firestore</p>
-              <p>3. Try different formats: 090..., +81..., 81...</p>
-            </>
-          ) : (
-            <p>Login with your registered email address</p>
-          )}
+          <button
+            type="button"
+            onClick={() => navigate('/register')}
+            disabled={loading}
+            style={{
+              color: '#3b82f6',
+              background: 'none',
+              border: 'none',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              textDecoration: 'underline',
+              fontSize: '0.875rem'
+            }}
+          >
+            Don't have an account? Register
+          </button>
+          <br />
+          <button
+            type="button"
+            onClick={() => navigate('/forgot-password')}
+            disabled={loading}
+            style={{
+              color: '#3b82f6',
+              background: 'none',
+              border: 'none',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              textDecoration: 'underline',
+              fontSize: '0.875rem',
+              marginTop: '0.5rem'
+            }}
+          >
+            Forgot Password?
+          </button>
         </div>
       </div>
     </div>

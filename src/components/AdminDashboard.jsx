@@ -13,7 +13,7 @@ const AdminDashboard = ({ fy: propFy }) => {
   const authCtx = useAuth();
   const logout = authCtx?.logout || (() => Promise.resolve());
 
-  const [fy, setFy] = useState(propFy || `2025_2025`);
+  const [fy, setFy] = useState(propFy || '');
   const [companies, setCompanies] = useState([]);
   const [users, setUsers] = useState([]);
   const [stats, setStats] = useState({
@@ -28,6 +28,17 @@ const AdminDashboard = ({ fy: propFy }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
+  useEffect(() => {
+  if (propFy) {
+    setFy(propFy);
+    sessionStorage.setItem('selectedFY', propFy);
+  } else {
+    const saved = sessionStorage.getItem('selectedFY');
+    if (saved) {
+      setFy(saved);
+    }
+  }
+}, [propFy]);
 
   const loadData = useCallback(async () => {
     if (!auth.currentUser) return;
@@ -84,7 +95,7 @@ const AdminDashboard = ({ fy: propFy }) => {
       await setDoc(doc(db, 'users', uid), {
         uid, email: userForm.email, role: userType,
         companyId: selectedCompany.companyId || selectedCompany.id,
-        current_fy: fy, createdAt: new Date(),
+        fyId: fy, createdAt: new Date(),
         displayName: userForm.name, phone: userForm.phone
       });
       const roleCol = userType === 'customer' ? 'customers' : userType === 'supplier' ? 'suppliers' : 'operators';
@@ -426,10 +437,15 @@ const AdminDashboard = ({ fy: propFy }) => {
             <strong>Financial Year:</strong> {fy}
           </p>
           <select 
-            value={fy} 
-            onChange={e => setFy(e.target.value)}
-            style={adminStyles.fySelect}
-          >
+           value={fy || ''} 
+           onChange={e => {
+           const newFy = e.target.value;
+           setFy(newFy);
+           // Yeh line add kar – FY ko yaad rakhega refresh ke baad bhi
+           sessionStorage.setItem('selectedFY', newFy);
+          }}
+          style={adminStyles.fySelect}
+           >
             <option value="2025_2025">FY 2025 (Apr 2025 - Mar 2026)</option>
             <option value="2026_2026">FY 2026 (Apr 2026 - Mar 2027)</option>
           </select>

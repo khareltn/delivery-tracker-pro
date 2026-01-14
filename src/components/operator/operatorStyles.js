@@ -1,0 +1,26 @@
+// components/Operator/operatorStyles.js
+export const styles = {
+  container: { backgroundColor: '#f5f7fa', minHeight: '100vh', fontFamily: "'Roboto', 'Segoe UI', sans-serif" },
+  header: { background: 'linear-gradient(135deg, #6a11cb 0%, #2575fc 100%)', color: 'white', borderRadius: '10px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)', marginBottom: '20px' },
+  headerContent: { padding: '20px 25px' },
+  sidebar: { backgroundColor: '#2c3e50', borderRadius: '10px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', minHeight: 'calc(100vh - 180px)', overflow: 'hidden' },
+  sidebarSection: { marginBottom: '25px' },
+  sidebarTitle: { color: '#95a5a6', fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '1px', padding: '15px 20px 5px', marginBottom: '10px', borderBottom: '1px solid #34495e' },
+  tabButton: { display: 'flex', alignItems: 'center', width: '100%', padding: '12px 20px', backgroundColor: 'transparent', border: 'none', color: '#bdc3c7', fontSize: '14px', fontWeight: '500', textAlign: 'left', cursor: 'pointer', transition: 'all 0.3s ease', borderLeft: '4px solid transparent' },
+  tabButtonActive: { backgroundColor: '#34495e', color: '#ffffff', borderLeft: '4px solid #3498db' },
+  tabIcon: { marginRight: '12px', fontSize: '18px', width: '24px', textAlign: 'center' },
+  contentArea: { backgroundColor: 'white', borderRadius: '10px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)', minHeight: 'calc(100vh - 180px)', padding: '25px' },
+  loadingContainer: { display: 'flex', justifyContent: 'center', alignItems: 'center', height: '400px', flexDirection: 'column' },
+  spinner: { border: '4px solid rgba(0,0,0,0.1)', width: '40px', height: '40px', borderRadius: '50%', borderLeftColor: '#3498db', animation: 'spin 1s linear infinite' },
+  statsGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '15px', marginBottom: '25px' },
+  statCard: { backgroundColor: 'white', borderRadius: '8px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.08)', border: '1px solid #e1e8ed', transition: 'transform 0.2s' },
+  statValue: { fontSize: '28px', fontWeight: 'bold', color: '#2c3e50', marginBottom: '5px' },
+  statLabel: { fontSize: '14px', color: '#7f8c8d', fontWeight: '500' },
+  card: { backgroundColor: 'white', borderRadius: '10px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)', border: '1px solid #e1e8ed', marginBottom: '20px' },
+  cardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', paddingBottom: '15px', borderBottom: '1px solid #e1e8ed' },
+  cardTitle: { fontSize: '18px', fontWeight: '600', color: '#2c3e50', margin: 0 },
+  quickActions: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '15px', marginBottom: '25px' },
+  quickActionButton: { backgroundColor: 'white', border: '1px solid #e1e8ed', borderRadius: '8px', padding: '20px 15px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', transition: 'all 0.3s ease' },
+  footer: { textAlign: 'center', color: '#95a5a6', fontSize: '12px', padding: '20px 0', borderTop: '1px solid #e1e8ed', marginTop: '30px' },
+  // Add more if needed later
+};

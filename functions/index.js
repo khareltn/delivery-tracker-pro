@@ -58,7 +58,7 @@ exports.getUserByMobileNumber = onRequest(async (req, res) => {
             name: userData.name,
             companyId: userData.companyId,
             companyName: userData.companyName,
-            current_fy: userData.current_fy,
+            fyId: userData.fyId,
             status: userData.status,
             mobileNumber: userData.mobileNumber,
             ...(userData.role === 'driver' && {

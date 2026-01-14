@@ -4,18 +4,18 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { db, auth } from '../firebase';
 import { 
   collection, 
-  addDoc, 
-  updateDoc,
-  query, 
-  where, 
   getDocs, 
-  orderBy, 
-  limit, 
   getDoc, 
-  doc 
+  doc, 
+  setDoc,
+  query,
+  where,
+  orderBy,
+  limit
 } from 'firebase/firestore';
 import { toast } from 'react-toastify';
 import { useAuth } from '../context/AuthContext';
+import { usePostalCodes } from '/src/hooks/usePostalCodes.js';
 import './CompanyRegistration.css';
 
 const CompanyRegistration = () => {
@@ -27,14 +27,15 @@ const CompanyRegistration = () => {
   const [error, setError] = useState('');
   const [taxVerificationStatus, setTaxVerificationStatus] = useState('');
   const [companyId, setCompanyId] = useState('');
-  const [postalData, setPostalData] = useState([]);
-  const [currentFY, setCurrentFY] = useState(null);
+  const [fyId, setfyId] = useState('');
   const [isLoadingFY, setIsLoadingFY] = useState(true);
   const [hasValidFY, setHasValidFY] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [isViewMode, setIsViewMode] = useState(false);
   const [existingCompanyId, setExistingCompanyId] = useState('');
   const [originalData, setOriginalData] = useState(null);
+
+  const { postalData, loading: postalLoading, findAddressByPostalCode } = usePostalCodes();
 
   const [formData, setFormData] = useState({
     name: '',
@@ -57,7 +58,7 @@ const CompanyRegistration = () => {
     ]
   });
 
-  // Check if we're in edit or view mode
+  // Detect edit/view mode
   useEffect(() => {
     if (paramCompanyId) {
       const path = window.location.pathname;
@@ -72,7 +73,7 @@ const CompanyRegistration = () => {
     }
   }, [paramCompanyId]);
 
-  // 1. FETCH CURRENT FY - MODIFIED FOR EDIT MODE
+  // Fetch current FY from user document - FIXED TO WAIT PROPERLY
   useEffect(() => {
     const fetchFY = async () => {
       if (!user) {
@@ -81,15 +82,6 @@ const CompanyRegistration = () => {
       }
 
       try {
-        // In edit/view mode, we don't need to check FY from user doc
-        // Instead, we'll get it from the company data itself
-        if (isEditMode || isViewMode) {
-          setIsLoadingFY(false);
-          setHasValidFY(true); // Allow edit/view even if no FY in user doc
-          return;
-        }
-
-        // For new registration, check FY from user document
         const userDoc = await getDoc(doc(db, 'users', user.uid));
         if (!userDoc.exists()) {
           toast.error('User data not found');
@@ -97,111 +89,69 @@ const CompanyRegistration = () => {
           return;
         }
 
-        const fyId = userDoc.data().current_fy;
-        if (!fyId) {
-          toast.error('Financial Year not set. Please set in FY Setup.');
-          navigate('/fy-setup');
+        const userData = userDoc.data();
+        const fyFromUser = userData.current_fy;
+
+        if (!fyFromUser) {
           setIsLoadingFY(false);
           return;
         }
 
-        const fyDoc = await getDoc(doc(db, 'financial_years', fyId));
+        // Validate FY document exists
+        const fyDoc = await getDoc(doc(db, 'financial_years', fyFromUser));
         if (!fyDoc.exists()) {
-          toast.error('Invalid Financial Year. Contact admin.');
-          navigate('/fy-setup');
+          toast.error('Financial Year document not found');
           setIsLoadingFY(false);
           return;
         }
 
-        setCurrentFY(fyId);
+        setfyId(fyFromUser);
         setHasValidFY(true);
         setIsLoadingFY(false);
       } catch (err) {
-        console.error('FY fetch error:', err);
-        // In edit mode, don't redirect to FY setup
-        if (!isEditMode && !isViewMode) {
-          toast.error('Failed to load Financial Year');
-          navigate('/fy-setup');
-        }
+        console.error('Error loading FY:', err);
         setIsLoadingFY(false);
       }
     };
 
     fetchFY();
-  }, [user, navigate, isEditMode, isViewMode]);
+  }, [user]);
 
-  // 2. POSTAL DATA LOAD (Only if not in edit/view mode or hasValidFY)
+  // Load existing company or generate ID - only after FY loaded
   useEffect(() => {
-    if (isEditMode || isViewMode || hasValidFY) {
-      fetch('/postal_codes.json?t=' + Date.now())
-        .then(r => {
-          if (!r.ok) throw new Error('Failed to load postal codes');
-          return r.json();
-        })
-        .then(data => setPostalData(data))
-        .catch(() => toast.error('postal_codes.json not found'));
-    }
-  }, [hasValidFY, isEditMode, isViewMode]);
-
-  // 3. LOAD EXISTING COMPANY OR GENERATE NEW ID
-  useEffect(() => {
-    const processCompanyData = async () => {
-      try {
-        if ((isEditMode || isViewMode) && existingCompanyId) {
-          // EDIT/VIEW MODE: Load existing company data
-          await loadExistingCompany();
-        } else if (currentFY && hasValidFY && !isEditMode && !isViewMode) {
-          // NEW REGISTRATION: Generate new company ID
-          await generateCompanyId();
-        }
-      } catch (error) {
-        console.error('Error processing company data:', error);
-        toast.error('Failed to load company data');
+  const processCompany = async () => {
+    try {
+      if ((isEditMode || isViewMode) && existingCompanyId) {
+        await loadExistingCompany();
+      } else if (fyId && !isEditMode && !isViewMode) {
+        await generateCompanyId();
       }
-    };
+    } catch (err) {
+      console.error('Company processing error:', err);
+      toast.error('Failed to load company data');
+    }
+  };
 
-    processCompanyData();
-  }, [currentFY, hasValidFY, isEditMode, isViewMode, existingCompanyId]);
+  // Sirf isLoadingFY false hone pe call karo, fyId truthy ho ya na ho
+  if (!isLoadingFY) {
+    processCompany();
+  }
+}, [isLoadingFY, fyId, isEditMode, isViewMode, existingCompanyId]);
 
-  // Function to load existing company data
   const loadExistingCompany = async () => {
     try {
-      console.log('Loading company for edit/view:', existingCompanyId);
-      
-      // Search across all financial_years to find the company
-      const financialYearsRef = collection(db, 'financial_years');
-      const fySnapshot = await getDocs(financialYearsRef);
-      
-      let foundCompany = null;
-      let foundFY = null;
-      let foundDocId = null;
+      const companyRef = doc(db, 'financial_years', fyId, 'companies', existingCompanyId);
+      const snap = await getDoc(companyRef);
 
-      // Search through all financial years
-      for (const fyDoc of fySnapshot.docs) {
-        const fyId = fyDoc.id;
-        const companiesRef = collection(db, 'financial_years', fyId, 'companies');
-        const q = query(companiesRef, where('companyId', '==', existingCompanyId));
-        const querySnapshot = await getDocs(q);
-        
-        if (!querySnapshot.empty) {
-          foundCompany = querySnapshot.docs[0].data();
-          foundFY = fyId;
-          foundDocId = querySnapshot.docs[0].id;
-          console.log('Found company in FY:', fyId, foundCompany);
-          break;
-        }
-      }
-
-      if (!foundCompany) {
+      if (!snap.exists()) {
         toast.error('Company not found');
         navigate('/management');
         return;
       }
 
-      // Store original data for comparison
+      const foundCompany = snap.data();
       setOriginalData(foundCompany);
-      
-      // Set form data from existing company
+
       setFormData({
         name: foundCompany.name || '',
         companyId: foundCompany.companyId || '',
@@ -218,35 +168,28 @@ const CompanyRegistration = () => {
         fax: foundCompany.fax || '',
         email: foundCompany.email || '',
         website: foundCompany.website || '',
-        bankAccounts: foundCompany.bankAccounts || [
-          { bankName: '', branchName: '', accountType: 'savings', accountNumber: '', accountHolder: '' }
-        ]
+        bankAccounts: foundCompany.bankAccounts?.length > 0 
+          ? foundCompany.bankAccounts 
+          : [{ bankName: '', branchName: '', accountType: 'savings', accountNumber: '', accountHolder: '' }]
       });
 
       setCompanyId(foundCompany.companyId || '');
-      setCurrentFY(foundFY); // Set current FY from where company was found
       
-      // Auto-verify tax if it exists
       if (foundCompany.taxRegistrationNo) {
         setTaxVerificationStatus('success');
       }
-      
-      // Mark as valid for edit/view
-      setHasValidFY(true);
-      setIsLoadingFY(false);
-      
+
     } catch (error) {
-      console.error('Error loading company:', error);
-      toast.error('Failed to load company data');
+      console.error('Load error:', error);
+      toast.error('Failed to load company');
       navigate('/management');
     }
   };
 
-  // Function to generate new company ID
   const generateCompanyId = async () => {
     try {
-      const year = currentFY.split('_')[0];
-      const companiesRef = collection(db, 'financial_years', currentFY, 'companies');
+      const year = fyId.split('_')[0];
+      const companiesRef = collection(db, 'financial_years', fyId, 'companies');
       const q = query(
         companiesRef,
         where('companyId', '>=', `COMP-${year}-`),
@@ -268,49 +211,68 @@ const CompanyRegistration = () => {
       setCompanyId(newId);
       setFormData(prev => ({ ...prev, companyId: newId }));
     } catch (error) {
-      console.error('Error generating company ID:', error);
-      const year = currentFY.split('_')[0];
-      const newId = `COMP-${year}-001`;
-      setCompanyId(newId);
-      setFormData(prev => ({ ...prev, companyId: newId }));
+      console.error('ID generation error:', error);
+      const year = fyId.split('_')[0];
+      const fallbackId = `COMP-${year}-001`;
+      setCompanyId(fallbackId);
+      setFormData(prev => ({ ...prev, companyId: fallbackId }));
     }
   };
 
-  // POSTAL CHANGE
   const handlePostalChange = (value) => {
-    if (isViewMode) return; // Don't allow changes in view mode
-    
-    const clean = value.replace(/[^0-9]/g, '');
+    if (isViewMode) return;
+
+    const clean = value.replace(/[^0-9]/g, '').slice(0, 7);
     setFormData(prev => ({ ...prev, postalCode: clean }));
-    
+
+    if (clean.length < 7) {
+      setFormData(prev => ({
+        ...prev,
+        prefecture: '',
+        city: '',
+        address: ''
+      }));
+      return;
+    }
+
     if (clean.length === 7) {
-      const found = postalData.find(p => p.postal_code === clean);
-      if (found) {
+      const result = findAddressByPostalCode(clean);
+
+      if (result) {
         setFormData(prev => ({
           ...prev,
-          prefecture: found.prefecture,
-          city: found.city,
-          address: found.town
+          prefecture: result.prefecture || '',
+          city: result.city || '',
+          address: result.town || ''
         }));
-        toast.success('Address filled!');
+        toast.success('住所が自動入力されました！');
       } else {
-        toast.warning('Postal code not found in database');
+        toast.warning('該当する郵便番号が見つかりませんでした');
+        setFormData(prev => ({
+          ...prev,
+          prefecture: '',
+          city: '',
+          address: ''
+        }));
       }
     }
   };
 
-  // BANK FUNCTIONS
+  useEffect(() => {
+    if (formData.postalCode.length === 7 && !postalLoading && postalData) {
+      handlePostalChange(formData.postalCode);
+    }
+  }, [postalLoading, postalData, formData.postalCode]);
+
   const handleBankAccountChange = (index, field, value) => {
-    if (isViewMode) return; // Don't allow changes in view mode
-    
+    if (isViewMode) return;
     const updated = [...formData.bankAccounts];
     updated[index][field] = value;
     setFormData(prev => ({ ...prev, bankAccounts: updated }));
   };
 
   const addBankAccount = () => {
-    if (isViewMode) return; // Don't allow changes in view mode
-    
+    if (isViewMode) return;
     setFormData(prev => ({
       ...prev,
       bankAccounts: [...prev.bankAccounts, 
@@ -320,7 +282,7 @@ const CompanyRegistration = () => {
   };
 
   const removeBankAccount = (index) => {
-    if (isViewMode) return; // Don't allow changes in view mode
+    if (isViewMode) return;
     if (formData.bankAccounts.length > 1) {
       setFormData(prev => ({
         ...prev,
@@ -329,13 +291,12 @@ const CompanyRegistration = () => {
     }
   };
 
-  // TAX VERIFY
   const verifyTaxRegistration = async () => {
-    if (isViewMode) return; // Don't allow changes in view mode
+    if (isViewMode) return;
     
     const taxId = formData.taxRegistrationNo.trim();
     if (!taxId) {
-      setError('Please enter Tax Registration Number');
+      setError('Tax Registration Number required');
       setTaxVerificationStatus('error');
       return;
     }
@@ -343,7 +304,7 @@ const CompanyRegistration = () => {
     const cleanId = taxId.replace(/^T/, '').replace(/\D/g, '');
     
     if (cleanId.length !== 13) {
-      setError('Tax ID must be 13 digits (T + 12 numbers)');
+      setError('Tax ID must be T + 12 digits');
       setTaxVerificationStatus('error');
       return;
     }
@@ -354,10 +315,9 @@ const CompanyRegistration = () => {
     await new Promise(resolve => setTimeout(resolve, 1500));
     
     setTaxVerificationStatus('success');
-    toast.success('Tax ID verified successfully!');
+    toast.success('Tax ID verified!');
   };
 
-  // SUBMIT - Handle both create and update
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -366,24 +326,23 @@ const CompanyRegistration = () => {
       return;
     }
     
-    if (!isEditMode && (!currentFY || !hasValidFY)) {
+    if (!fyId) {
       toast.error('Financial Year not set');
-      navigate('/fy-setup');
       return;
     }
     
     if (formData.taxRegistrationNo && taxVerificationStatus !== 'success') {
-      setError('Please verify Tax ID first');
+      setError('Verify Tax ID first');
       return;
     }
     
     if (!formData.name.trim()) {
-      setError('Company Name is required');
+      setError('Company Name required');
       return;
     }
     
     if (!formData.postalCode || formData.postalCode.length !== 7) {
-      setError('Valid 7-digit Postal Code is required');
+      setError('Valid 7-digit Postal Code required');
       return;
     }
 
@@ -397,72 +356,47 @@ const CompanyRegistration = () => {
         ownerEmail: currentUser.email,
         updatedAt: new Date(),
         status: 'active',
-        financialYear: currentFY || formData.financialYear || ''
+        financialYear: fyId
       };
 
-      if (isEditMode && currentFY) {
-        // UPDATE EXISTING COMPANY
-        // Find the company document
-        const companiesRef = collection(db, 'financial_years', currentFY, 'companies');
-        const q = query(companiesRef, where('companyId', '==', companyId));
-        const querySnapshot = await getDocs(q);
-        
-        if (querySnapshot.empty) {
-          throw new Error('Company not found for update');
-        }
-        
-        const companyDoc = querySnapshot.docs[0];
-        await updateDoc(companyDoc.ref, companyData);
-        
+      if (isEditMode) {
+        await setDoc(doc(db, 'financial_years', fyId, 'companies', companyId), companyData, { merge: true });
         toast.success('Company Updated Successfully!');
       } else {
-        // CREATE NEW COMPANY
         companyData.createdAt = new Date();
-        await addDoc(collection(db, 'financial_years', currentFY, 'companies'), companyData);
-        
+        await setDoc(doc(db, 'financial_years', fyId, 'companies', companyId), companyData);
         toast.success('Company Registered Successfully!');
       }
       
       navigate('/management');
-      
     } catch (err) {
-      console.error('Registration/Update error:', err);
-      setError(`${isEditMode ? 'Update' : 'Registration'} failed: ${err.message}`);
+      console.error('Submit error:', err);
+      setError(`${isEditMode ? 'Update' : 'Registration'} failed`);
       toast.error(`Failed to ${isEditMode ? 'update' : 'register'} company`);
     } finally {
       setLoading(false);
     }
   };
 
-  // Reset form to original values
   const handleReset = () => {
-    if (isViewMode) return; // Don't allow changes in view mode
-    if (originalData) {
-      setFormData(originalData);
-      toast.info('Form reset to original values');
-    }
+    if (isViewMode || !originalData) return;
+    setFormData(originalData);
+    toast.info('Form reset to original');
   };
 
-  // Cancel and navigate back
-  const handleCancel = () => {
-    navigate('/management');
-  };
+  const handleCancel = () => navigate('/management');
 
-  // LOADING STATE
-  if (isLoadingFY && !isEditMode && !isViewMode) {
+  // FIXED: Proper loading and FY check - NO LOOP
+  if (isLoadingFY) {
     return (
       <div className="loading-container">
         <div className="loading-spinner"></div>
-        <p>Loading Financial Year Configuration...</p>
-        <p className="loading-subtext">
-          Please wait while we verify your financial year setup
-        </p>
+        <p>Loading Financial Year configuration...</p>
       </div>
     );
   }
 
-  // In edit/view mode, we don't need FY validation
-  if (!isEditMode && !isViewMode && !hasValidFY) {
+  if (!hasValidFY) {
     return (
       <div className="error-container">
         <div className="error-icon">⚠️</div>
@@ -470,16 +404,10 @@ const CompanyRegistration = () => {
         <p className="error-message">
           You need to setup a Financial Year before registering a company.
         </p>
-        <button
-          onClick={() => navigate('/fy-setup')}
-          className="redirect-button"
-        >
+        <button onClick={() => navigate('/fy-setup')} className="redirect-button">
           Go to Financial Year Setup
         </button>
-        <button
-          onClick={() => navigate('/management')}
-          className="back-button"
-        >
+        <button onClick={() => navigate('/management')} className="back-button">
           Back to Dashboard
         </button>
       </div>
@@ -490,265 +418,189 @@ const CompanyRegistration = () => {
     <div className="company-reg-container">
       <div className="header-section">
         <div className="header-top">
-          <h1 className="title">
-            {isViewMode ? 'View Company' : isEditMode ? 'Edit Company' : 'Company Registration'}
-          </h1>
-          {isViewMode && (
-            <div className="view-mode-badge">
-              <span className="view-mode-indicator">👁️</span>
-              View Mode
-            </div>
-          )}
-          {isEditMode && !isViewMode && (
-            <div className="edit-mode-badge">
-              <span className="edit-mode-indicator">✏️</span>
-              Edit Mode
-            </div>
-          )}
+          <h2 className="title">
+            {isEditMode ? 'Edit Company' : isViewMode ? 'View Company Details' : 'Register New Company'}
+          </h2>
+          {isEditMode && <div className="edit-mode-badge"><span className="edit-mode-indicator">✏️</span> Edit Mode</div>}
+          {isViewMode && <div className="view-mode-badge"><span className="view-mode-indicator">👁️</span> View Mode</div>}
         </div>
         <div className="sub-header">
-          <span className="fy-badge">
-            FY: {currentFY || formData.financialYear || 'Not Set'}
-          </span>
-          <span className="company-id-display">
-            Company ID: <strong>{companyId}</strong>
-            {(isEditMode || isViewMode) && <span className="readonly-tag"> (Read Only)</span>}
-          </span>
+          <div className="fy-badge">FY: {fyId}</div>
+          <div className="company-id-display">
+            Company ID: <strong>{companyId || 'Generating...'}</strong>
+            <span className="readonly-tag">(Read-only)</span>
+          </div>
         </div>
       </div>
 
-      {error && (
-        <div className="error-alert">
-          ⚠️ {error}
-        </div>
-      )}
+      {error && <div className="error-alert">{error}</div>}
 
       <div className="form-card">
         <form onSubmit={handleSubmit}>
-          <div className="form-grid">
-            {/* Basic Information */}
-            <div className="form-section">
-              <h3 className="section-title">Basic Information</h3>
+          {/* Company Information */}
+          <div className="form-section">
+            <h3 className="section-title">Company Information</h3>
+            <div className="form-grid">
               <div className="input-group">
-                <label className="label">Company Name *</label>
+                <label className="label">Company Name <span className="required">*</span></label>
                 <input
                   type="text"
-                  placeholder="Enter company name"
                   value={formData.name}
                   onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
                   className="input"
                   required
                   disabled={isViewMode}
-                  readOnly={isViewMode}
                 />
               </div>
-
               <div className="input-group">
                 <label className="label">Company Name (Kana)</label>
                 <input
                   type="text"
-                  placeholder="カナ表記"
                   value={formData.companyNameKana}
                   onChange={e => setFormData(prev => ({ ...prev, companyNameKana: e.target.value }))}
                   className="input"
                   disabled={isViewMode}
-                  readOnly={isViewMode}
-                />
-              </div>
-
-              <div className="input-group">
-                <label className="label">Corporate Number</label>
-                <input
-                  type="text"
-                  placeholder="13-digit corporate number"
-                  value={formData.corporateNumber}
-                  onChange={e => setFormData(prev => ({ ...prev, corporateNumber: e.target.value }))}
-                  className="input"
-                  maxLength="13"
-                  disabled={isViewMode}
-                  readOnly={isViewMode}
-                />
-              </div>
-
-              <div className="input-group">
-                <label className="label">Representative</label>
-                <input
-                  type="text"
-                  placeholder="Representative name"
-                  value={formData.representative}
-                  onChange={e => setFormData(prev => ({ ...prev, representative: e.target.value }))}
-                  className="input"
-                  disabled={isViewMode}
-                  readOnly={isViewMode}
-                />
-              </div>
-
-              {/* Company ID Field - Always Read Only */}
-              <div className="input-group">
-                <label className="label">Company ID</label>
-                <input
-                  type="text"
-                  value={formData.companyId}
-                  className="input readonly"
-                  readOnly
-                />
-                <small className="field-note">Company ID cannot be changed</small>
-              </div>
-            </div>
-
-            {/* Contact Information */}
-            <div className="form-section">
-              <h3 className="section-title">Contact Information</h3>
-              <div className="input-group">
-                <label className="label">Phone *</label>
-                <input
-                  type="tel"
-                  placeholder="Phone number"
-                  value={formData.phone}
-                  onChange={e => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                  className="input"
-                  required
-                  disabled={isViewMode}
-                  readOnly={isViewMode}
-                />
-              </div>
-
-              <div className="input-group">
-                <label className="label">Email</label>
-                <input
-                  type="email"
-                  placeholder="Email address"
-                  value={formData.email}
-                  onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                  className="input"
-                  disabled={isViewMode}
-                  readOnly={isViewMode}
-                />
-              </div>
-
-              <div className="input-group">
-                <label className="label">Fax</label>
-                <input
-                  type="text"
-                  placeholder="Fax number"
-                  value={formData.fax}
-                  onChange={e => setFormData(prev => ({ ...prev, fax: e.target.value }))}
-                  className="input"
-                  disabled={isViewMode}
-                  readOnly={isViewMode}
-                />
-              </div>
-
-              <div className="input-group">
-                <label className="label">Website</label>
-                <input
-                  type="url"
-                  placeholder="https://example.com"
-                  value={formData.website}
-                  onChange={e => setFormData(prev => ({ ...prev, website: e.target.value }))}
-                  className="input"
-                  disabled={isViewMode}
-                  readOnly={isViewMode}
                 />
               </div>
             </div>
+          </div>
 
-            {/* Address Information */}
-            <div className="form-section">
-              <h3 className="section-title">Address Information</h3>
+          {/* Address Section */}
+          <div className="form-section">
+            <h3 className="section-title">Address</h3>
+            <div className="form-grid">
               <div className="input-group">
-                <label className="label">Postal Code *</label>
+                <label className="label">Postal Code <span className="required">*</span></label>
                 <input
                   type="text"
-                  placeholder="123-4567"
+                  placeholder="1234567"
                   value={formData.postalCode}
-                  onChange={e => handlePostalChange(e.target.value)}
+                  onChange={(e) => handlePostalChange(e.target.value)}
                   className="input"
                   maxLength="7"
                   required
-                  disabled={isViewMode}
-                  readOnly={isViewMode}
+                  disabled={isViewMode || postalLoading}
                 />
+                {postalLoading && <small className="field-note">検索中です...</small>}
               </div>
 
               <div className="input-group">
                 <label className="label">Prefecture</label>
-                <input
-                  type="text"
-                  placeholder="Prefecture"
-                  value={formData.prefecture}
-                  readOnly
-                  className="input readonly"
-                />
+                <input type="text" value={formData.prefecture} readOnly className="input readonly" />
               </div>
-
               <div className="input-group">
                 <label className="label">City</label>
-                <input
-                  type="text"
-                  placeholder="City"
-                  value={formData.city}
-                  readOnly
-                  className="input readonly"
-                />
+                <input type="text" value={formData.city} readOnly className="input readonly" />
               </div>
-
               <div className="input-group">
-                <label className="label">Address</label>
-                <input
-                  type="text"
-                  placeholder="Address"
-                  value={formData.address}
-                  readOnly
-                  className="input readonly"
-                />
+                <label className="label">Address Line</label>
+                <input type="text" value={formData.address} readOnly className="input readonly" />
               </div>
-
               <div className="input-group">
-                <label className="label">Building/Apartment</label>
+                <label className="label">Building / Room</label>
                 <input
                   type="text"
-                  placeholder="Building name, floor, apartment"
                   value={formData.building}
                   onChange={e => setFormData(prev => ({ ...prev, building: e.target.value }))}
                   className="input"
                   disabled={isViewMode}
-                  readOnly={isViewMode}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Contact & Legal */}
+          <div className="form-section">
+            <h3 className="section-title">Contact & Legal Information</h3>
+            <div className="form-grid">
+              <div className="input-group">
+                <label className="label">Corporate Number</label>
+                <input
+                  type="text"
+                  value={formData.corporateNumber}
+                  onChange={e => setFormData(prev => ({ ...prev, corporateNumber: e.target.value }))}
+                  className="input"
+                  disabled={isViewMode}
+                />
+              </div>
+              <div className="input-group">
+                <label className="label">Representative</label>
+                <input
+                  type="text"
+                  value={formData.representative}
+                  onChange={e => setFormData(prev => ({ ...prev, representative: e.target.value }))}
+                  className="input"
+                  disabled={isViewMode}
+                />
+              </div>
+              <div className="input-group">
+                <label className="label">Phone</label>
+                <input
+                  type="tel"
+                  value={formData.phone}
+                  onChange={e => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+                  className="input"
+                  disabled={isViewMode}
+                />
+              </div>
+              <div className="input-group">
+                <label className="label">Fax</label>
+                <input
+                  type="text"
+                  value={formData.fax}
+                  onChange={e => setFormData(prev => ({ ...prev, fax: e.target.value }))}
+                  className="input"
+                  disabled={isViewMode}
+                />
+              </div>
+              <div className="input-group">
+                <label className="label">Email</label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                  className="input"
+                  disabled={isViewMode}
+                />
+              </div>
+              <div className="input-group">
+                <label className="label">Website</label>
+                <input
+                  type="url"
+                  value={formData.website}
+                  onChange={e => setFormData(prev => ({ ...prev, website: e.target.value }))}
+                  className="input"
+                  disabled={isViewMode}
                 />
               </div>
             </div>
 
-            {/* Tax Information */}
-            <div className="form-section">
-              <h3 className="sectionTitle">Tax Information</h3>
-              <div className="input-group">
-                <label className="label">Tax Registration No</label>
-                <div className="tax-input-container">
-                  <input
-                    type="text"
-                    placeholder="T + 12 digits"
-                    value={formData.taxRegistrationNo}
-                    onChange={e => {
-                      setFormData(prev => ({ ...prev, taxRegistrationNo: e.target.value }));
-                      setTaxVerificationStatus('');
-                    }}
-                    className="input"
-                    disabled={isViewMode}
-                    readOnly={isViewMode}
-                  />
-                  {!isViewMode && (
-                    <button
-                      type="button"
-                      onClick={verifyTaxRegistration}
-                      disabled={taxVerificationStatus === 'verifying' || !formData.taxRegistrationNo}
-                      className={`verify-button ${taxVerificationStatus}`}
-                    >
-                      {taxVerificationStatus === 'success' ? '✓ Verified' : 
-                       taxVerificationStatus === 'verifying' ? 'Checking...' : 
-                       taxVerificationStatus === 'error' ? '✗ Failed' : 'Verify'}
-                    </button>
-                  )}
-                </div>
+            <div className="input-group">
+              <label className="label">Tax Registration No</label>
+              <div className="tax-input-container">
+                <input
+                  type="text"
+                  value={formData.taxRegistrationNo}
+                  onChange={e => {
+                    setFormData(prev => ({ ...prev, taxRegistrationNo: e.target.value }));
+                    setTaxVerificationStatus('');
+                  }}
+                  className="input"
+                  placeholder="T + 12 digits"
+                  disabled={isViewMode}
+                />
+                {!isViewMode && (
+                  <button 
+                    type="button" 
+                    onClick={verifyTaxRegistration} 
+                    className={`verify-button ${taxVerificationStatus}`}
+                    disabled={taxVerificationStatus === 'verifying'}
+                  >
+                    {taxVerificationStatus === 'success' ? '✓ Verified' : 
+                     taxVerificationStatus === 'verifying' ? 'Checking...' : 
+                     'Verify'}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -759,46 +611,33 @@ const CompanyRegistration = () => {
             {formData.bankAccounts.map((account, index) => (
               <div key={index} className="bank-account-card">
                 <div className="bank-account-header">
-                  <h4 className="bank-account-title">Account {index + 1}</h4>
-                  {!isViewMode && isEditMode && formData.bankAccounts.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeBankAccount(index)}
-                      className="remove-bank-button"
-                    >
+                  <h4 className="bank-account-title">Bank Account {index + 1}</h4>
+                  {!isViewMode && formData.bankAccounts.length > 1 && (
+                    <button type="button" onClick={() => removeBankAccount(index)} className="remove-bank-button">
                       Remove
                     </button>
                   )}
                 </div>
-                
                 <div className="bank-grid">
                   <div className="input-group">
                     <label className="label">Bank Name *</label>
                     <input
-                      type="text"
-                      placeholder="Bank name"
                       value={account.bankName}
                       onChange={e => handleBankAccountChange(index, 'bankName', e.target.value)}
                       className="input"
                       required
                       disabled={isViewMode}
-                      readOnly={isViewMode}
                     />
                   </div>
-
                   <div className="input-group">
                     <label className="label">Branch Name</label>
                     <input
-                      type="text"
-                      placeholder="Branch name"
                       value={account.branchName}
                       onChange={e => handleBankAccountChange(index, 'branchName', e.target.value)}
                       className="input"
                       disabled={isViewMode}
-                      readOnly={isViewMode}
                     />
                   </div>
-
                   <div className="input-group">
                     <label className="label">Account Type</label>
                     <select
@@ -807,135 +646,55 @@ const CompanyRegistration = () => {
                       className="select"
                       disabled={isViewMode}
                     >
-                      <option value="savings">Savings Account</option>
-                      <option value="checking">Checking Account</option>
-                      <option value="current">Current Account</option>
+                      <option value="savings">Savings</option>
+                      <option value="checking">Checking</option>
+                      <option value="current">Current</option>
                     </select>
                   </div>
-
                   <div className="input-group">
                     <label className="label">Account Number *</label>
                     <input
-                      type="text"
-                      placeholder="Account number"
                       value={account.accountNumber}
                       onChange={e => handleBankAccountChange(index, 'accountNumber', e.target.value)}
                       className="input"
                       required
                       disabled={isViewMode}
-                      readOnly={isViewMode}
                     />
                   </div>
-
                   <div className="input-group">
                     <label className="label">Account Holder (Kana)</label>
                     <input
-                      type="text"
-                      placeholder="Holder name in Kana"
                       value={account.accountHolder}
                       onChange={e => handleBankAccountChange(index, 'accountHolder', e.target.value)}
                       className="input"
                       disabled={isViewMode}
-                      readOnly={isViewMode}
                     />
                   </div>
                 </div>
               </div>
             ))}
-
-            {!isViewMode && isEditMode && (
-              <button
-                type="button"
-                onClick={addBankAccount}
-                className="add-bank-button"
-              >
+            {!isViewMode && (
+              <button type="button" onClick={addBankAccount} className="add-bank-button">
                 + Add Another Bank Account
               </button>
             )}
           </div>
 
-          {/* Submit Button */}
+          {/* Submit Buttons */}
           <div className="submit-section">
-            {isEditMode ? (
-              <>
-                <button
-                  type="submit"
-                  disabled={loading || isViewMode}
-                  className="submit-button"
-                >
-                  {loading ? (
-                    <>
-                      <span className="spinner"></span>
-                      Updating Company...
-                    </>
-                  ) : (
-                    'Update Company'
-                  )}
-                </button>
-                
-                {!isViewMode && (
-                  <button
-                    type="button"
-                    onClick={handleReset}
-                    className="reset-button"
-                    disabled={loading}
-                  >
-                    Reset
-                  </button>
-                )}
-                
-                <button
-                  type="button"
-                  onClick={handleCancel}
-                  className="cancel-button"
-                  disabled={loading}
-                >
-                  {isViewMode ? 'Back to List' : 'Cancel'}
-                </button>
-              </>
-            ) : isViewMode ? (
-              <div className="view-mode-actions">
-                <button
-                  type="button"
-                  onClick={() => navigate(`/company-registration/edit/${companyId}`)}
-                  className="edit-from-view-button"
-                >
-                  Edit This Company
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCancel}
-                  className="cancel-button"
-                >
-                  Back to List
-                </button>
-              </div>
-            ) : (
-              <>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="submit-button"
-                >
-                  {loading ? (
-                    <>
-                      <span className="spinner"></span>
-                      Registering Company...
-                    </>
-                  ) : (
-                    'Complete Registration'
-                  )}
-                </button>
-                
-                <button
-                  type="button"
-                  onClick={handleCancel}
-                  className="cancel-button"
-                >
-                  Cancel
-                </button>
-              </>
+            {!isViewMode && (
+              <button type="submit" disabled={loading} className="submit-button">
+                {loading ? 'Saving...' : isEditMode ? 'Update Company' : 'Register Company'}
+              </button>
             )}
+            {isEditMode && !isViewMode && (
+              <button type="button" onClick={handleReset} className="reset-button">
+                Reset Form
+              </button>
+            )}
+            <button type="button" onClick={handleCancel} className="cancel-button">
+              {isViewMode ? 'Back to List' : 'Cancel'}
+            </button>
           </div>
         </form>
       </div>
